@@ -1,9 +1,4 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-});
+import axios, { AxiosError } from "axios";
 
 export interface AgentInput {
   userId: string;
@@ -28,15 +23,14 @@ export interface AgentOutput {
   error?: string;
 }
 
-// Free model fallback chain — all confirmed live as of Feb 2026 (verified via OpenRouter API)
+// NVIDIA models available on build.nvidia.com
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || "";
+const NVIDIA_API_URL =
+  process.env.NVIDIA_API_URL ||
+  "https://integrate.api.nvidia.com/v1/chat/completions";
+
 const FREE_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free", // Meta Llama 3.3 70B — high traffic, stable
-  "openai/gpt-oss-20b:free", // OpenAI open-weight 20B MoE — free tier
-  "openai/gpt-oss-120b:free", // OpenAI open-weight 120B MoE — free tier
-  "stepfun/step-3.5-flash:free", // StepFun 196B MoE — 256K context
-  "z-ai/glm-4.5-air:free", // Z.ai GLM 4.5 Air — 131K context
-  "nvidia/nemotron-3-nano-30b-a3b:free", // NVIDIA Nemotron 30B — 256K context
-  "qwen/qwen3-coder:free", // Qwen3 Coder 480B — 262K context
+  "meta/llama-3.2-11b-vision-instruct", // Meta Llama 3.2 11B Vision — multimodal
 ];
 
 /**
@@ -101,67 +95,65 @@ export const callOpenAI = async (
   userMessage: string,
   maxTokens = 1500,
 ): Promise<string> => {
-  const primaryModel = process.env.OPENAI_MODEL || FREE_MODELS[0];
-  const allModels = [
-    primaryModel,
-    ...FREE_MODELS.filter(m => m !== primaryModel),
-  ];
+  const model = process.env.NVIDIA_MODEL || FREE_MODELS[0];
 
-  let lastError: unknown;
-  for (const model of allModels) {
-    try {
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content:
-              systemPrompt +
-              "\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanation — just raw JSON.",
-          },
-          { role: "user", content: userMessage },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.7,
-      });
+  try {
+    const headers = {
+      Authorization: `Bearer ${NVIDIA_API_KEY}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
 
-      const raw = response.choices[0]?.message?.content || "{}";
-      const cleaned = raw
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      return repairJSON(cleaned) || "{}";
-    } catch (err: unknown) {
+    const payload = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            systemPrompt +
+            "\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanation — just raw JSON.",
+        },
+        { role: "user", content: userMessage },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.7,
+      top_p: 1.0,
+      frequency_penalty: 0.0,
+      presence_penalty: 0.0,
+      stream: false,
+    };
+
+    const response = await axios.post(NVIDIA_API_URL, payload, {
+      headers,
+      responseType: "json",
+      timeout: 30000,
+    });
+
+    const raw = response.data?.choices?.[0]?.message?.content || "{}";
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    return repairJSON(cleaned) || "{}";
+  } catch (err: unknown) {
+    let errorDetails = "";
+    if ((err as AxiosError).response) {
+      const axiosErr = err as AxiosError;
+      errorDetails = `Status: ${axiosErr.response?.status}, Data: ${JSON.stringify(axiosErr.response?.data)}`;
+      console.error(`[NVIDIA API Error with model ${model}]:`, errorDetails);
+    } else {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[OpenAI Error with model ${model}]:`, msg);
-      // Only fall through to next model on rate-limit or not-found errors
-      if (
-        msg.includes("429") ||
-        msg.includes("404") ||
-        msg.includes("No endpoints") ||
-        msg.includes("401")
-      ) {
-        lastError = err;
-        continue;
-      }
-      throw err; // re-throw any other error immediately
+      console.error(`[NVIDIA API Error with model ${model}]:`, msg);
     }
+    // Return empty object as fallback
+    console.warn("[NVIDIA API] Request failed, returning mock response");
+    return "{}";
   }
-
-  // If all models fail, return a fallback response
-  console.warn("[OpenAI] All models failed, returning mock response");
-  return "{}";
 };
 
-// ── Vision models — multimodal, free tier on OpenRouter ────────────────────
-// Verified live as of March 14, 2026. Only nemotron-nano-12b-v2-vl has a
-// confirmed :free endpoint. Others listed here are paid but very cheap
-// fallbacks in case the free endpoint is rate-limited.
+// ── Vision models — multimodal, using NVIDIA API ────────────────────────────
 const FREE_VISION_MODELS = [
-  "nvidia/nemotron-nano-12b-v2-vl:free", // NVIDIA 12B VL — $0, 99.3% uptime, confirmed free
-  "meta-llama/llama-4-scout", // Llama 4 Scout — multimodal, ~$0.18/M (cheap fallback)
-  "meta-llama/llama-4-maverick", // Llama 4 Maverick — multimodal, ~$0.22/M (cheap fallback)
-  "qwen/qwen2.5-vl-72b-instruct", // Qwen 2.5 VL 72B — vision, ~$0.40/M (cheap fallback)
+  "meta/llama-3.2-11b-vision-instruct", // Meta Llama 3.2 11B Vision — multimodal, supports images
 ];
 
 export const callVision = async (
@@ -171,66 +163,77 @@ export const callVision = async (
   mimeType: string,
   maxTokens = 1500,
 ): Promise<string> => {
-  const primaryModel = process.env.VISION_MODEL || FREE_VISION_MODELS[0];
-  const allModels = [
-    primaryModel,
-    ...FREE_VISION_MODELS.filter(m => m !== primaryModel),
-  ];
+  const model = process.env.NVIDIA_MODEL || FREE_VISION_MODELS[0];
 
-  let lastError: unknown;
-  for (const model of allModels) {
-    try {
-      const response = await openai.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content:
-              systemPrompt +
-              "\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanation — just raw JSON.",
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType};base64,${imageBase64}`,
-                },
-              },
-              {
-                type: "text",
-                text: question,
-              },
-            ],
-          },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.7,
-      });
+  try {
+    const headers = {
+      Authorization: `Bearer ${NVIDIA_API_KEY}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
 
-      const raw = response.choices[0]?.message?.content || "{}";
-      const cleaned = raw
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      return repairJSON(cleaned) || "{}";
-    } catch (err: unknown) {
+    const payload = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            systemPrompt +
+            "\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanation — just raw JSON.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType};base64,${imageBase64}`,
+              },
+            },
+            {
+              type: "text",
+              text: question,
+            },
+          ],
+        },
+      ],
+      max_tokens: maxTokens,
+      temperature: 0.7,
+      top_p: 1.0,
+      frequency_penalty: 0.0,
+      presence_penalty: 0.0,
+      stream: false,
+    };
+
+    const response = await axios.post(NVIDIA_API_URL, payload, {
+      headers,
+      responseType: "json",
+      timeout: 30000,
+    });
+
+    const raw = response.data?.choices?.[0]?.message?.content || "{}";
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    return repairJSON(cleaned) || "{}";
+  } catch (err: unknown) {
+    let errorDetails = "";
+    if ((err as AxiosError).response) {
+      const axiosErr = err as AxiosError;
+      errorDetails = `Status: ${axiosErr.response?.status}, Data: ${JSON.stringify(axiosErr.response?.data)}`;
+      console.error(
+        `[NVIDIA API Vision Error with model ${model}]:`,
+        errorDetails,
+      );
+    } else {
       const msg = err instanceof Error ? err.message : String(err);
-      if (
-        msg.includes("429") ||
-        msg.includes("404") ||
-        msg.includes("No endpoints") ||
-        msg.includes("unsupported")
-      ) {
-        lastError = err;
-        continue;
-      }
-      throw err;
+      console.error(`[NVIDIA API Vision Error with model ${model}]:`, msg);
     }
+    // Return empty object as fallback
+    console.warn("[NVIDIA API Vision] Request failed, returning mock response");
+    return "{}";
   }
-
-  throw lastError;
 };
 
 export const buildStudentContext = (input: AgentInput): string => {

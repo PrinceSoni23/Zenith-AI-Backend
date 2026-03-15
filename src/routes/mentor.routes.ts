@@ -1,26 +1,18 @@
 import { Router, Response } from "express";
 import mongoose from "mongoose";
+import axios, { AxiosError } from "axios";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { AIOrchestrator } from "../agents/orchestrator";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { WeakTopic } from "../models/WeakTopic.model";
-import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://openrouter.ai/api/v1",
-});
-
-const FREE_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "openai/gpt-oss-20b:free",
-  "openai/gpt-oss-120b:free",
-  "stepfun/step-3.5-flash:free",
-  "z-ai/glm-4.5-air:free",
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "qwen/qwen3-coder:free",
-];
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY || "";
+const NVIDIA_API_URL =
+  process.env.NVIDIA_API_URL ||
+  "https://integrate.api.nvidia.com/v1/chat/completions";
+const NVIDIA_MODEL =
+  process.env.NVIDIA_MODEL || "meta/llama-3.2-11b-vision-instruct";
 
 const router = Router();
 router.use(authenticate);
@@ -111,48 +103,53 @@ Guidelines:
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
-    const primaryModel = process.env.OPENAI_MODEL || FREE_MODELS[0];
-    const allModels = [
-      primaryModel,
-      ...FREE_MODELS.filter(m => m !== primaryModel),
-    ];
+    try {
+      const headers = {
+        Authorization: `Bearer ${NVIDIA_API_KEY}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
 
-    let streamed = false;
-    for (const model of allModels) {
-      try {
-        const stream = await openai.chat.completions.create({
-          model,
-          stream: true,
-          messages: [{ role: "system", content: systemPrompt }, ...messages],
-          max_tokens: 600,
-          temperature: 0.8,
-        });
+      const payload = {
+        model: NVIDIA_MODEL,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        max_tokens: 600,
+        temperature: 0.8,
+        top_p: 1.0,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
+        stream: false,
+      };
 
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta?.content;
-          if (delta) {
-            res.write(`data: ${JSON.stringify({ delta })}\n\n`);
-          }
-        }
-        streamed = true;
-        break;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes("429") ||
-          msg.includes("404") ||
-          msg.includes("No endpoints")
-        ) {
-          continue;
-        }
-        throw err;
+      const response = await axios.post(NVIDIA_API_URL, payload, {
+        headers,
+        responseType: "json",
+        timeout: 30000,
+      });
+
+      const content = response.data?.choices?.[0]?.message?.content || "";
+      if (content) {
+        res.write(`data: ${JSON.stringify({ delta: content })}\n\n`);
+      } else {
+        res.write(
+          `data: ${JSON.stringify({ delta: "Sorry, I didn't get a response. Please try again 🙏" })}\n\n`,
+        );
       }
-    }
+    } catch (err: unknown) {
+      let errorMsg =
+        "Sorry, I'm having trouble connecting right now. Please try again in a moment 🙏";
 
-    if (!streamed) {
-      res.write(
-        `data: ${JSON.stringify({ delta: "Sorry, I'm having trouble connecting right now. Please try again in a moment 🙏" })}\n\n`,
-      );
+      if ((err as AxiosError).response) {
+        const axiosErr = err as AxiosError;
+        console.error(
+          `[NVIDIA API Error]:`,
+          `Status: ${axiosErr.response?.status}, Data: ${JSON.stringify(axiosErr.response?.data)}`,
+        );
+      } else if (err instanceof Error) {
+        console.error(`[NVIDIA API Error]:`, err.message);
+      }
+
+      res.write(`data: ${JSON.stringify({ delta: errorMsg })}\n\n`);
     }
 
     res.write("data: [DONE]\n\n");
