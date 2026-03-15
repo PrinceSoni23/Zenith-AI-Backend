@@ -6,6 +6,7 @@ import { StudentProfile } from "../models/StudentProfile.model";
 import { StudyLog } from "../models/StudyLog.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { logger } from "../utils/logger";
 
 export const dispatchAgent = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -26,7 +27,14 @@ export const dispatchAgent = asyncHandler(
     if (!agentType) throw createError("Agent type is required", 400);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    logger.info(
+      `[dispatchAgent] Starting dispatch for agent: ${agentType}, user: ${userId}`,
+    );
+
     const profile = await StudentProfile.findOne({ userId: userObjectId });
+    if (!profile) {
+      logger.warn(`[dispatchAgent] No profile found for user: ${userId}`);
+    }
 
     const agentInput = {
       userId,
@@ -48,7 +56,12 @@ export const dispatchAgent = asyncHandler(
       agentInput,
     );
 
+    logger.info(
+      `[dispatchAgent] Agent response - success: ${result.success}, agent: ${result.agentName}`,
+    );
+
     if (!result.success) {
+      logger.error(`[dispatchAgent] Agent failed with error: ${result.error}`);
       throw createError(result.error || "Agent processing failed", 500);
     }
 
