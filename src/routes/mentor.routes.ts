@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { AIOrchestrator } from "../agents/orchestrator";
@@ -30,9 +31,10 @@ router.get(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const [profile, weakTopics] = await Promise.all([
-      StudentProfile.findOne({ userId }),
-      WeakTopic.find({ userId, needsRevision: true }).limit(3),
+      StudentProfile.findOne({ userId: userObjectId }),
+      WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(3),
     ]);
 
     const result = await AIOrchestrator.dispatch("mentor", {
@@ -61,6 +63,7 @@ router.post(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const { messages } = req.body as {
       messages: Array<{ role: "user" | "assistant"; content: string }>;
     };
@@ -71,8 +74,8 @@ router.post(
 
     // Fetch student profile for personalised context
     const [profile, weakTopics] = await Promise.all([
-      StudentProfile.findOne({ userId }),
-      WeakTopic.find({ userId, needsRevision: true }).limit(5),
+      StudentProfile.findOne({ userId: userObjectId }),
+      WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(5),
     ]);
 
     const systemPrompt = `You are an empathetic, supportive AI Mentor for school students.

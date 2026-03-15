@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
@@ -9,7 +10,10 @@ router.use(authenticate);
 router.get(
   "/",
   asyncHandler(async (req: AuthRequest, res: Response) => {
-    const profile = await StudentProfile.findOne({ userId: req.user?.id });
+    const userId = req.user?.id;
+    if (!userId) throw createError("Unauthorized", 401);
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const profile = await StudentProfile.findOne({ userId: userObjectId });
     if (!profile) throw createError("Profile not found", 404);
     res.json({ success: true, data: profile });
   }),
@@ -18,8 +22,11 @@ router.get(
 router.put(
   "/",
   asyncHandler(async (req: AuthRequest, res: Response) => {
+    const userId = req.user?.id;
+    if (!userId) throw createError("Unauthorized", 401);
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const profile = await StudentProfile.findOneAndUpdate(
-      { userId: req.user?.id },
+      { userId: userObjectId },
       { $set: req.body },
       { new: true, runValidators: true },
     );

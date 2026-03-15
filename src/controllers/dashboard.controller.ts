@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { StudyLog } from "../models/StudyLog.model";
@@ -11,11 +12,14 @@ export const getDashboard = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const [profile, recentLogs, pendingTasks, weakTopics] = await Promise.all([
-      StudentProfile.findOne({ userId }),
-      StudyLog.find({ userId }).sort({ createdAt: -1 }).limit(5),
-      Task.find({ userId, isCompleted: false }).sort({ priority: -1 }).limit(5),
-      WeakTopic.find({ userId, needsRevision: true }).limit(5),
+      StudentProfile.findOne({ userId: userObjectId }),
+      StudyLog.find({ userId: userObjectId }).sort({ createdAt: -1 }).limit(5),
+      Task.find({ userId: userObjectId, isCompleted: false })
+        .sort({ priority: -1 })
+        .limit(5),
+      WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(5),
     ]);
 
     // Calculate weekly stats
@@ -23,7 +27,7 @@ export const getDashboard = asyncHandler(
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const weeklyLogs = await StudyLog.find({
-      userId,
+      userId: userObjectId,
       createdAt: { $gte: weekAgo },
     });
 
@@ -69,9 +73,10 @@ export const updateProfile = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const updates = req.body;
     const profile = await StudentProfile.findOneAndUpdate(
-      { userId },
+      { userId: userObjectId },
       { $set: updates },
       { new: true, runValidators: true },
     );

@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { AIOrchestrator, AgentType } from "../agents/orchestrator";
 import { StudentProfile } from "../models/StudentProfile.model";
@@ -24,7 +25,8 @@ export const dispatchAgent = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
     if (!agentType) throw createError("Agent type is required", 400);
 
-    const profile = await StudentProfile.findOne({ userId });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const profile = await StudentProfile.findOne({ userId: userObjectId });
 
     const agentInput = {
       userId,
@@ -53,7 +55,7 @@ export const dispatchAgent = asyncHandler(
     // Log usage
     if (subject && topic) {
       await StudyLog.create({
-        userId,
+        userId: userObjectId,
         subject,
         topic,
         moduleUsed: agentType,
@@ -79,9 +81,10 @@ export const getDailyFlow = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
-    const profile = await StudentProfile.findOne({ userId });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const profile = await StudentProfile.findOne({ userId: userObjectId });
     const weakTopics = await WeakTopic.find({
-      userId,
+      userId: userObjectId,
       needsRevision: true,
     }).limit(5);
 

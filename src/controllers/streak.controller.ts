@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { StudyLog } from "../models/StudyLog.model";
@@ -25,13 +26,17 @@ function startOfDayUTC(d: Date) {
  * Returns the new streak count.
  */
 export async function recalcStreak(userId: string): Promise<number> {
-  const logs = await StudyLog.find({ userId })
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+  const logs = await StudyLog.find({ userId: userObjectId })
     .sort({ date: -1 })
     .select("date")
     .lean();
 
   if (logs.length === 0) {
-    await StudentProfile.findOneAndUpdate({ userId }, { streakDays: 0 });
+    await StudentProfile.findOneAndUpdate(
+      { userId: userObjectId },
+      { streakDays: 0 },
+    );
     return 0;
   }
 
@@ -53,14 +58,14 @@ export async function recalcStreak(userId: string): Promise<number> {
 
   if (!hasToday && !hasYesterday) {
     // ── Shield protection: consume 1 shield instead of resetting ─────────────
-    const profile = await StudentProfile.findOne({ userId })
+    const profile = await StudentProfile.findOne({ userId: userObjectId })
       .select("streakShields streakDays")
       .lean();
 
     if (profile && profile.streakShields > 0 && (profile.streakDays ?? 0) > 0) {
       // Inject a ghost "yesterday" study log so the streak walk-back still works
       await StudyLog.create({
-        userId,
+        userId: userObjectId,
         subject: "Shield",
         topic: "Streak Freeze (auto)",
         moduleUsed: "streak-shield",
@@ -71,14 +76,17 @@ export async function recalcStreak(userId: string): Promise<number> {
       });
       // Deduct the shield
       await StudentProfile.findOneAndUpdate(
-        { userId },
+        { userId: userObjectId },
         { $inc: { streakShields: -1 } },
       );
       // Re-run with the injected log
       return recalcStreak(userId);
     }
 
-    await StudentProfile.findOneAndUpdate({ userId }, { streakDays: 0 });
+    await StudentProfile.findOneAndUpdate(
+      { userId: userObjectId },
+      { streakDays: 0 },
+    );
     return 0;
   }
 
@@ -94,7 +102,10 @@ export async function recalcStreak(userId: string): Promise<number> {
     }
   }
 
-  await StudentProfile.findOneAndUpdate({ userId }, { streakDays: streak });
+  await StudentProfile.findOneAndUpdate(
+    { userId: userObjectId },
+    { streakDays: streak },
+  );
   return streak;
 }
 
@@ -105,8 +116,9 @@ export const getStreakData = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const streak = await recalcStreak(userId);
-    const profile = await StudentProfile.findOne({ userId })
+    const profile = await StudentProfile.findOne({ userId: userObjectId })
       .select(
         "studyScore powerHourEnds powerHourTime powerHourSetMonth streakShields",
       )
@@ -118,7 +130,7 @@ export const getStreakData = asyncHandler(
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
     const recentLogs = await StudyLog.find({
-      userId,
+      userId: userObjectId,
       date: { $gte: sevenDaysAgo },
     })
       .select("date")
@@ -138,7 +150,7 @@ export const getStreakData = asyncHandler(
     // Did the student study today?
     const todayStart = startOfDay(new Date());
     const studiedToday = await StudyLog.exists({
-      userId,
+      userId: userObjectId,
       date: { $gte: todayStart },
     });
 
@@ -179,11 +191,12 @@ export const getDailyMissions = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const todayStart = startOfDay(new Date());
 
     // Get today's AI-generated tasks, max 3
     let missions = await Task.find({
-      userId,
+      userId: userObjectId,
       generatedByAI: true,
       dueDate: { $gte: todayStart },
     })
@@ -193,7 +206,7 @@ export const getDailyMissions = asyncHandler(
 
     // Fallback: get any pending tasks
     if (missions.length === 0) {
-      missions = await Task.find({ userId, isCompleted: false })
+      missions = await Task.find({ userId: userObjectId, isCompleted: false })
         .sort({ priority: -1 })
         .limit(3)
         .lean();
@@ -221,10 +234,11 @@ export const completeTask = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const { taskId } = req.params;
 
     const task = await Task.findOneAndUpdate(
-      { _id: taskId, userId },
+      { _id: taskId, userId: userObjectId },
       { isCompleted: true, completedAt: new Date() },
       { new: true },
     );
@@ -232,7 +246,7 @@ export const completeTask = asyncHandler(
     if (!task) throw createError("Task not found", 404);
 
     // Check power hour multiplier
-    const profile = await StudentProfile.findOne({ userId })
+    const profile = await StudentProfile.findOne({ userId: userObjectId })
       .select("powerHourEnds")
       .lean();
     const multiplierActive = isPowerHourActive(profile?.powerHourEnds);
@@ -241,7 +255,7 @@ export const completeTask = asyncHandler(
 
     // Award XP
     await StudentProfile.findOneAndUpdate(
-      { userId },
+      { userId: userObjectId },
       {
         $inc: {
           studyScore: xpEarned,
@@ -252,13 +266,13 @@ export const completeTask = asyncHandler(
 
     // Log a study entry so streak counts this day
     const alreadyLoggedToday = await StudyLog.exists({
-      userId,
+      userId: userObjectId,
       date: { $gte: startOfDay(new Date()) },
     });
 
     if (!alreadyLoggedToday) {
       await StudyLog.create({
-        userId,
+        userId: userObjectId,
         subject: task.subject,
         topic: task.title,
         moduleUsed: "daily-mission",
@@ -275,7 +289,7 @@ export const completeTask = asyncHandler(
     const wasOnMilestone = newStreak > 0 && newStreak % 7 === 0;
     if (wasOnMilestone) {
       await StudentProfile.findOneAndUpdate(
-        { userId },
+        { userId: userObjectId },
         { $inc: { streakShields: 1 } },
       );
     }
