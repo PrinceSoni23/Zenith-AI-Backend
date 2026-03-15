@@ -34,11 +34,11 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     role: role || "student",
   });
 
-  // Auto-create student profile for students
-  if (user.role === "student" && classLevel) {
+  // Auto-create student profile for students (with defaults if not provided)
+  if (user.role === "student") {
     await StudentProfile.create({
       userId: user._id,
-      classLevel,
+      classLevel: classLevel || "Class 6",
       board: board || "CBSE",
       subjects: subjects || [],
       preferredLanguage: preferredLanguage || "English",

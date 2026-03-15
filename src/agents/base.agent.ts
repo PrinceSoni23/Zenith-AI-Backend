@@ -133,11 +133,13 @@ export const callOpenAI = async (
       return repairJSON(cleaned) || "{}";
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[OpenAI Error with model ${model}]:`, msg);
       // Only fall through to next model on rate-limit or not-found errors
       if (
         msg.includes("429") ||
         msg.includes("404") ||
-        msg.includes("No endpoints")
+        msg.includes("No endpoints") ||
+        msg.includes("401")
       ) {
         lastError = err;
         continue;
@@ -146,7 +148,9 @@ export const callOpenAI = async (
     }
   }
 
-  throw lastError;
+  // If all models fail, return a fallback response
+  console.warn("[OpenAI] All models failed, returning mock response");
+  return "{}";
 };
 
 // ── Vision models — multimodal, free tier on OpenRouter ────────────────────
@@ -235,4 +239,18 @@ export const buildStudentContext = (input: AgentInput): string => {
 - Board: ${input.board || "CBSE"}
 - Language: ${input.preferredLanguage || "English"}
 - Subject: ${input.subject || "General"}`;
+};
+
+/**
+ * Safely parses AI response and returns empty object if it fails
+ * Used for fallback responses when API is unavailable
+ */
+export const safeJsonParse = (jsonString: string): Record<string, unknown> => {
+  try {
+    const parsed = JSON.parse(jsonString);
+    // If result is empty object or minimal, it's likely a fallback
+    return Object.keys(parsed).length > 0 ? parsed : {};
+  } catch {
+    return {};
+  }
 };

@@ -5,6 +5,7 @@ import { StudentProfile } from "../models/StudentProfile.model";
 import { StudyLog } from "../models/StudyLog.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { logger } from "../utils/logger";
 
 export const dispatchAgent = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -26,11 +27,19 @@ export const dispatchAgent = asyncHandler(
 
     const profile = await StudentProfile.findOne({ userId });
 
+    // Ensure profile exists with defaults
+    if (!profile) {
+      throw createError(
+        "Student profile not found. Please complete your profile setup.",
+        404,
+      );
+    }
+
     const agentInput = {
       userId,
-      classLevel: profile?.classLevel,
-      board: profile?.board,
-      preferredLanguage: profile?.preferredLanguage,
+      classLevel: profile?.classLevel || "Class 6",
+      board: profile?.board || "CBSE",
+      preferredLanguage: profile?.preferredLanguage || "English",
       subject,
       topic,
       content,
@@ -47,6 +56,7 @@ export const dispatchAgent = asyncHandler(
     );
 
     if (!result.success) {
+      logger.error(`[Agent Error] ${agentType} failed: ${result.error}`);
       throw createError(result.error || "Agent processing failed", 500);
     }
 
@@ -80,6 +90,13 @@ export const getDailyFlow = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
 
     const profile = await StudentProfile.findOne({ userId });
+    if (!profile) {
+      throw createError(
+        "Student profile not found. Please complete your profile setup.",
+        404,
+      );
+    }
+
     const weakTopics = await WeakTopic.find({
       userId,
       needsRevision: true,
@@ -87,9 +104,9 @@ export const getDailyFlow = asyncHandler(
 
     const agentInput = {
       userId,
-      classLevel: profile?.classLevel,
-      board: profile?.board,
-      preferredLanguage: profile?.preferredLanguage,
+      classLevel: profile?.classLevel || "Class 6",
+      board: profile?.board || "CBSE",
+      preferredLanguage: profile?.preferredLanguage || "English",
       additionalContext: {
         studentName: req.user?.email?.split("@")[0],
         weakTopics: weakTopics.map(w => `${w.subject}: ${w.topic}`),

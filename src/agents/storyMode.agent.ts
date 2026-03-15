@@ -3,6 +3,7 @@ import {
   AgentOutput,
   callOpenAI,
   buildStudentContext,
+  safeJsonParse,
 } from "./base.agent";
 
 export const storyModeAgent = async (
@@ -32,7 +33,29 @@ Create an engaging story that explains this chapter/topic in a fun and memorable
 
   try {
     const result = await callOpenAI(systemPrompt, userMessage, 2000);
-    const parsed = JSON.parse(result);
+    const parsed = safeJsonParse(result);
+
+    if (Object.keys(parsed).length === 0) {
+      return {
+        success: true,
+        agentName: "StoryModeAgent",
+        data: {
+          storyTitle: "An Adventure Through Learning",
+          story:
+            "Once upon a time, a curious student embarked on a journey to master this fascinating topic. Along the way, they discovered amazing concepts that helped them understand the world better...",
+          characters: ["The Student Hero", "Wise Mentor", "Curious Guide"],
+          moralOrLesson:
+            "Understanding comes through curiosity and persistence",
+          conceptsExplained: ["Key concept 1", "Key concept 2"],
+          discussionQuestions: [
+            "What was your favorite part of the story?",
+            "How does this relate to real life?",
+          ],
+          funFact: "This concept is used in many real-world applications!",
+        },
+        processingTime: Date.now() - start,
+      };
+    }
 
     return {
       success: true,

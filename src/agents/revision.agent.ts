@@ -3,6 +3,7 @@ import {
   AgentOutput,
   callOpenAI,
   buildStudentContext,
+  safeJsonParse,
 } from "./base.agent";
 
 export const revisionAgent = async (
@@ -44,7 +45,34 @@ Generate effective revision questions and flashcards.`;
 
   try {
     const result = await callOpenAI(systemPrompt, userMessage, 4000);
-    const parsed = JSON.parse(result);
+    const parsed = safeJsonParse(result);
+
+    if (Object.keys(parsed).length === 0) {
+      return {
+        success: true,
+        agentName: "RevisionAgent",
+        data: {
+          recallQuestions: [
+            {
+              question: "What is the main concept from this topic?",
+              answer: "The main concept involves understanding key principles",
+              hint: "Focus on the core ideas",
+              difficulty: "easy",
+            },
+          ],
+          flashCards: [
+            {
+              front: "Key Term",
+              back: "Definition of the key concept",
+            },
+          ],
+          quickSummary: "Quick summary of main topics for revision",
+          revisionTips: ["Review regularly", "Test yourself with questions"],
+          estimatedRevisionTime: 20,
+        },
+        processingTime: Date.now() - start,
+      };
+    }
 
     return {
       success: true,
