@@ -1,10 +1,12 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { AIOrchestrator, AgentType } from "../agents/orchestrator";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { StudyLog } from "../models/StudyLog.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { logger } from "../utils/logger";
 import { logger } from "../utils/logger";
 
 export const dispatchAgent = asyncHandler(
@@ -55,6 +57,10 @@ export const dispatchAgent = asyncHandler(
       agentInput,
     );
 
+    logger.info(
+      `[dispatchAgent] Agent response - success: ${result.success}, agent: ${result.agentName}`,
+    );
+
     if (!result.success) {
       logger.error(`[Agent Error] ${agentType} failed: ${result.error}`);
       throw createError(result.error || "Agent processing failed", 500);
@@ -63,7 +69,7 @@ export const dispatchAgent = asyncHandler(
     // Log usage
     if (subject && topic) {
       await StudyLog.create({
-        userId,
+        userId: userObjectId,
         subject,
         topic,
         moduleUsed: agentType,
@@ -98,7 +104,7 @@ export const getDailyFlow = asyncHandler(
     }
 
     const weakTopics = await WeakTopic.find({
-      userId,
+      userId: userObjectId,
       needsRevision: true,
     }).limit(5);
 

@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { User } from "../models/User.model";
@@ -35,7 +36,10 @@ export const getLeaderboard = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
 
     // Fetch caller's profile to scope the leaderboard
-    const myProfile = await StudentProfile.findOne({ userId }).lean();
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const myProfile = await StudentProfile.findOne({
+      userId: userObjectId,
+    }).lean();
     if (!myProfile) throw createError("Profile not found", 404);
 
     const { board, classLevel } = myProfile;

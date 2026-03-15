@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { StudyLog } from "../models/StudyLog.model";
 import { StudentProfile } from "../models/StudentProfile.model";
@@ -13,11 +14,12 @@ router.post(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
-    const log = await StudyLog.create({ userId, ...req.body });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const log = await StudyLog.create({ userId: userObjectId, ...req.body });
 
     // Update student's total study time and score
     await StudentProfile.findOneAndUpdate(
-      { userId },
+      { userId: userObjectId },
       {
         $inc: {
           totalStudyMinutes: log.durationMinutes,
@@ -35,9 +37,11 @@ router.get(
   "/",
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
+    if (!userId) throw createError("Unauthorized", 401);
+    const userObjectId = new mongoose.Types.ObjectId(userId);
     const { limit = 20, page = 1, subject } = req.query;
 
-    const filter: Record<string, unknown> = { userId };
+    const filter: Record<string, unknown> = { userId: userObjectId };
     if (subject) filter.subject = subject;
 
     const logs = await StudyLog.find(filter)

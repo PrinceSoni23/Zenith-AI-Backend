@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import mongoose from "mongoose";
 import {
   AuthRequest,
   authenticate,
@@ -19,9 +20,11 @@ router.post(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const parentUserId = req.user?.id;
     const { studentUserId, relationship } = req.body;
+    const parentObjectId = new mongoose.Types.ObjectId(parentUserId);
+    const studentObjectId = new mongoose.Types.ObjectId(studentUserId);
     const link = await ParentAccess.create({
-      parentUserId,
-      studentUserId,
+      parentUserId: parentObjectId,
+      studentUserId: studentObjectId,
       relationship,
     });
     res.status(201).json({ success: true, data: link });
@@ -36,9 +39,12 @@ router.get(
     const parentUserId = req.user?.id;
     const { studentId } = req.params;
 
+    const parentObjectId = new mongoose.Types.ObjectId(parentUserId);
+    const studentObjectId = new mongoose.Types.ObjectId(studentId);
+
     const access = await ParentAccess.findOne({
-      parentUserId,
-      studentUserId: studentId,
+      parentUserId: parentObjectId,
+      studentUserId: studentObjectId,
       isApproved: true,
     });
     if (!access) throw createError("Access denied or not approved", 403);
@@ -47,9 +53,9 @@ router.get(
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const [profile, studyLogs, weakTopics] = await Promise.all([
-      StudentProfile.findOne({ userId: studentId }),
-      StudyLog.find({ userId: studentId, createdAt: { $gte: weekAgo } }),
-      WeakTopic.find({ userId: studentId, needsRevision: true }),
+      StudentProfile.findOne({ userId: studentObjectId }),
+      StudyLog.find({ userId: studentObjectId, createdAt: { $gte: weekAgo } }),
+      WeakTopic.find({ userId: studentObjectId, needsRevision: true }),
     ]);
 
     res.json({
@@ -65,8 +71,9 @@ router.get(
   authorize("parent", "admin"),
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const parentUserId = req.user?.id;
+    const parentObjectId = new mongoose.Types.ObjectId(parentUserId);
     const links = await ParentAccess.find({
-      parentUserId,
+      parentUserId: parentObjectId,
       isApproved: true,
     }).populate("studentUserId", "name email");
     const students = links.map((l: any) => ({

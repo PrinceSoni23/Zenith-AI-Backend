@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { logger } from "../utils/logger";
 
@@ -23,7 +24,8 @@ export async function setPersonalPowerHour(
   hour: number, // 0-23
   minute: number, // 0-59
 ): Promise<{ ok: true; time: string } | { ok: false; reason: string }> {
-  const profile = await StudentProfile.findOne({ userId }).select(
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+  const profile = await StudentProfile.findOne({ userId: userObjectId }).select(
     "powerHourSetMonth powerHourTime",
   );
   if (!profile) return { ok: false, reason: "Profile not found" };
@@ -38,7 +40,7 @@ export async function setPersonalPowerHour(
 
   const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
   await StudentProfile.updateOne(
-    { userId },
+    { userId: userObjectId },
     { $set: { powerHourTime: time, powerHourSetMonth: currentMonth } },
   );
   logger.info(
@@ -51,7 +53,8 @@ export async function setPersonalPowerHour(
  * Returns the user's current Power Hour preference for display.
  */
 export async function getPersonalSchedule(userId: string) {
-  const profile = await StudentProfile.findOne({ userId })
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+  const profile = await StudentProfile.findOne({ userId: userObjectId })
     .select("powerHourTime powerHourSetMonth powerHourEnds")
     .lean();
   if (!profile) return null;
@@ -79,8 +82,12 @@ export async function getPersonalSchedule(userId: string) {
 
 /** Activates a 60-minute Power Hour for a single user right now. */
 export async function activatePowerHourForUser(userId: string): Promise<Date> {
+  const userObjectId = new mongoose.Types.ObjectId(userId);
   const ends = new Date(Date.now() + 60 * 60 * 1000);
-  await StudentProfile.updateOne({ userId }, { $set: { powerHourEnds: ends } });
+  await StudentProfile.updateOne(
+    { userId: userObjectId },
+    { $set: { powerHourEnds: ends } },
+  );
   return ends;
 }
 
