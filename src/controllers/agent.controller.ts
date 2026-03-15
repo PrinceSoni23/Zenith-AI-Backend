@@ -7,7 +7,6 @@ import { StudyLog } from "../models/StudyLog.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { logger } from "../utils/logger";
-import { logger } from "../utils/logger";
 
 export const dispatchAgent = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -27,7 +26,8 @@ export const dispatchAgent = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
     if (!agentType) throw createError("Agent type is required", 400);
 
-    const profile = await StudentProfile.findOne({ userId });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const profile = await StudentProfile.findOne({ userId: userObjectId });
 
     // Ensure profile exists with defaults
     if (!profile) {
@@ -95,7 +95,8 @@ export const getDailyFlow = asyncHandler(
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
-    const profile = await StudentProfile.findOne({ userId });
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const profile = await StudentProfile.findOne({ userId: userObjectId });
     if (!profile) {
       throw createError(
         "Student profile not found. Please complete your profile setup.",
