@@ -20,8 +20,18 @@ export const dispatchAgent = asyncHandler(
       imageBase64,
       mimeType,
       question,
+      language,
     } = req.body;
     const userId = req.user?.id;
+
+    // Debug logging
+    logger.info(`[dispatchAgent] Received language parameter: ${language}`);
+    logger.info(
+      `[dispatchAgent] Full request body keys: ${Object.keys(req.body).join(", ")}`,
+    );
+    logger.info(
+      `[dispatchAgent] Full request body: ${JSON.stringify(req.body)}`,
+    );
 
     if (!userId) throw createError("Unauthorized", 401);
     if (!agentType) throw createError("Agent type is required", 400);
@@ -49,7 +59,10 @@ export const dispatchAgent = asyncHandler(
       question,
       imageBase64,
       mimeType,
-      additionalContext: additionalContext || {},
+      additionalContext: {
+        ...(additionalContext || {}),
+        language: language || "english",
+      },
     };
 
     const result = await AIOrchestrator.dispatch(
