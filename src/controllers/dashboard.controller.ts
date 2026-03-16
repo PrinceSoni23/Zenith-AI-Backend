@@ -6,46 +6,93 @@ import { StudyLog } from "../models/StudyLog.model";
 import { Task } from "../models/Task.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { cacheService } from "../services/cache.service";
+import { logger } from "../utils/logger";
 
+/**
+ * Optimized dashboard endpoint:
+ * - Paginates data to reduce load
+ * - Caches stats for 5 minutes
+ * - Returns data faster on repeat visits
+ */
 export const getDashboard = asyncHandler(
   async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
-    const [profile, recentLogs, pendingTasks, weakTopics] = await Promise.all([
-      StudentProfile.findOne({ userId: userObjectId }),
-      StudyLog.find({ userId: userObjectId }).sort({ createdAt: -1 }).limit(5),
-      Task.find({ userId: userObjectId, isCompleted: false })
-        .sort({ priority: -1 })
-        .limit(5),
-      WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(5),
-    ]);
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(10, parseInt(req.query.limit as string) || 5);
 
-    // Calculate weekly stats
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
+    // Check cache for stats (these don't change often)
+    const cacheKey = `dashboard:stats:${userId}`;
+    let cachedStats = cacheService.get(cacheKey);
 
-    const weeklyLogs = await StudyLog.find({
-      userId: userObjectId,
-      createdAt: { $gte: weekAgo },
-    });
+    // ── Fetch profile and recent data in parallel ──
+    const [profile, recentLogs, pendingTasks, weakTopics, weeklyLogsCached] =
+      await Promise.all([
+        StudentProfile.findOne({ userId: userObjectId }),
+        StudyLog.find({ userId: userObjectId })
+          .sort({ createdAt: -1 })
+          .limit(limit * page)
+          .lean(),
+        Task.find({ userId: userObjectId, isCompleted: false })
+          .sort({ priority: -1 })
+          .limit(limit * page)
+          .lean(),
+        WeakTopic.find({ userId: userObjectId, needsRevision: true })
+          .limit(limit)
+          .lean(),
+        // Only fetch weekly logs if not cached
+        cachedStats
+          ? Promise.resolve(null)
+          : StudyLog.find({
+              userId: userObjectId,
+              createdAt: {
+                $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+              },
+            }).lean(),
+      ]);
 
-    const weeklyMinutes = weeklyLogs.reduce(
-      (sum, log) => sum + log.durationMinutes,
-      0,
-    );
-    const weeklyScore = weeklyLogs.reduce(
-      (sum, log) => sum + log.scoreEarned,
-      0,
-    );
+    // Calculate weekly stats (with caching)
+    interface WeeklyStats {
+      weeklyMinutes: number;
+      weeklyScore: number;
+      subjectBreakdown: Record<string, number>;
+    }
 
-    // Subject breakdown
-    const subjectBreakdown: Record<string, number> = {};
-    weeklyLogs.forEach(log => {
-      subjectBreakdown[log.subject] =
-        (subjectBreakdown[log.subject] || 0) + log.durationMinutes;
-    });
+    let weeklyStats: WeeklyStats | null = (cachedStats as WeeklyStats) || null;
+    if (!weeklyStats && weeklyLogsCached) {
+      const weeklyMinutes = weeklyLogsCached.reduce(
+        (sum, log) => sum + (log.durationMinutes || 0),
+        0,
+      );
+      const weeklyScore = weeklyLogsCached.reduce(
+        (sum, log) => sum + (log.scoreEarned || 0),
+        0,
+      );
+
+      // Subject breakdown
+      const subjectBreakdown: Record<string, number> = {};
+      weeklyLogsCached.forEach(log => {
+        subjectBreakdown[log.subject] =
+          (subjectBreakdown[log.subject] || 0) + (log.durationMinutes || 0);
+      });
+
+      weeklyStats = {
+        weeklyMinutes,
+        weeklyScore,
+        subjectBreakdown,
+      };
+
+      // Cache stats for 5 minutes
+      cacheService.set(cacheKey, weeklyStats, 300);
+      logger.info(`[Dashboard] Cached stats for user ${userId}`);
+    }
+
+    // Paginate results
+    const startIdx = (page - 1) * limit;
+    const endIdx = startIdx + limit;
 
     res.json({
       success: true,
@@ -55,14 +102,19 @@ export const getDashboard = asyncHandler(
           streakDays: profile?.streakDays || 0,
           studyScore: profile?.studyScore || 0,
           totalStudyMinutes: profile?.totalStudyMinutes || 0,
-          weeklyMinutes,
-          weeklyScore,
+          weeklyMinutes: weeklyStats?.weeklyMinutes || 0,
+          weeklyScore: weeklyStats?.weeklyScore || 0,
           badges: profile?.badges || [],
         },
-        recentActivity: recentLogs,
-        pendingTasks,
+        recentActivity: recentLogs.slice(startIdx, endIdx),
+        pendingTasks: pendingTasks.slice(startIdx, endIdx),
         weakTopics,
-        subjectBreakdown,
+        subjectBreakdown: weeklyStats?.subjectBreakdown || {},
+        pagination: {
+          page,
+          limit,
+          hasMore: recentLogs.length > endIdx,
+        },
       },
     });
   },
