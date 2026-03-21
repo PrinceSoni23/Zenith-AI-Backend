@@ -28,6 +28,8 @@ import mentorRoutes from "./routes/mentor.routes";
 import profileRoutes from "./routes/profile.routes";
 import streakRoutes from "./routes/streak.routes";
 import leaderboardRoutes from "./routes/leaderboard.routes";
+import migrationRoutes from "./routes/migration.routes";
+import devRoutes from "./routes/dev.routes";
 import { runWeeklyReset } from "./controllers/leaderboard.controller";
 import {
   startPersonalPowerHourScheduler,
@@ -76,6 +78,8 @@ app.use("/api/mentor", mentorRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/streak", streakRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
+app.use("/api/migration", migrationRoutes);
+app.use("/api/dev", devRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

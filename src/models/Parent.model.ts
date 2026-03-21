@@ -1,11 +1,11 @@
 import mongoose, { Document, Schema } from "mongoose";
 import bcrypt from "bcryptjs";
 
-export interface IUser extends Document {
+export interface IParent extends Document {
   name: string;
   email: string;
   password: string;
-  role: "student" | "parent" | "admin";
+  phone?: string;
   isActive: boolean;
   lastLogin?: Date;
   createdAt: Date;
@@ -13,7 +13,7 @@ export interface IUser extends Document {
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
-const UserSchema = new Schema<IUser>(
+const ParentSchema = new Schema<IParent>(
   {
     name: {
       type: String,
@@ -36,10 +36,9 @@ const UserSchema = new Schema<IUser>(
       minlength: 8,
       select: false,
     },
-    role: {
+    phone: {
       type: String,
-      enum: ["student", "parent", "admin"],
-      default: "student",
+      trim: true,
     },
     isActive: { type: Boolean, default: true },
     lastLogin: { type: Date },
@@ -48,11 +47,12 @@ const UserSchema = new Schema<IUser>(
 );
 
 // Hash password before saving (only if password is not already hashed)
-UserSchema.pre("save", async function (next) {
+ParentSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
   // Check if password is already hashed (bcrypt hashes are ~60 chars)
   if (this.password.length === 60 && this.password.startsWith("$2")) {
+    console.log("[ParentSchema] Password already hashed, skipping re-hash");
     return next();
   }
 
@@ -61,10 +61,10 @@ UserSchema.pre("save", async function (next) {
 });
 
 // Compare passwords
-UserSchema.methods.comparePassword = async function (
+ParentSchema.methods.comparePassword = async function (
   candidatePassword: string,
 ): Promise<boolean> {
-  return bcrypt.compare(candidatePassword, this.password);
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
-export const User = mongoose.model<IUser>("User", UserSchema);
+export const Parent = mongoose.model<IParent>("Parent", ParentSchema);

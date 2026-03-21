@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from "mongoose";
 export interface IStudentProfile extends Document {
   userId: mongoose.Types.ObjectId;
   classLevel: string;
-  board: "CBSE" | "ICSE" | "State" | "IB" | "IGCSE" | "Other";
+  board: string; // Allow custom boards
   subjects: string[];
   preferredLanguage: string;
   learningStyle: "visual" | "auditory" | "reading" | "kinesthetic";
@@ -54,7 +54,6 @@ const StudentProfileSchema = new Schema<IStudentProfile>(
     },
     board: {
       type: String,
-      enum: ["CBSE", "ICSE", "State", "IB", "IGCSE", "Other"],
       default: "CBSE",
     },
     subjects: [{ type: String }],

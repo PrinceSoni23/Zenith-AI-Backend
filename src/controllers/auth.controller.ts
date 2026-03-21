@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { User } from "../models/User.model";
+import { Parent } from "../models/Parent.model";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 
@@ -24,18 +25,45 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     preferredLanguage,
   } = req.body;
 
-  const existingUser = await User.findOne({ email });
-  if (existingUser) throw createError("Email already registered", 409);
+  console.log("[AUTH] Register request - role received:", role);
+  console.log(
+    "[AUTH] Register request - full body keys:",
+    Object.keys(req.body),
+  );
 
-  const user = await User.create({
-    name,
-    email,
-    password,
-    role: role || "student",
-  });
+  const finalRole = role || "student";
 
-  // Auto-create student profile for students (with defaults if not provided)
-  if (user.role === "student") {
+  // Check if email already exists in BOTH collections
+  const [existingParent, existingStudent] = await Promise.all([
+    Parent.findOne({ email }),
+    User.findOne({ email }),
+  ]);
+
+  if (existingParent || existingStudent) {
+    console.log("[AUTH] Email already registered:", email);
+    throw createError("Email already registered", 409);
+  }
+
+  let user: any;
+
+  // Create in appropriate collection
+  if (finalRole === "parent") {
+    console.log("[AUTH] Creating parent account in PARENT collection");
+    user = await Parent.create({
+      name,
+      email,
+      password,
+    });
+  } else {
+    console.log("[AUTH] Creating student account in STUDENT collection");
+    user = await User.create({
+      name,
+      email,
+      password,
+      role: "student",
+    });
+
+    // Auto-create student profile
     await StudentProfile.create({
       userId: user._id,
       classLevel: classLevel || "Class 6",
@@ -45,46 +73,127 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  const token = signToken(String(user._id), user.role, user.email);
+  console.log(
+    "[AUTH] User created with role:",
+    finalRole,
+    "in appropriate collection",
+  );
+
+  const token = signToken(String(user._id), finalRole, user.email);
 
   res.status(201).json({
     success: true,
     message: "Registration successful",
     token,
-    user: { id: user._id, name: user.name, email: user.email, role: user.role },
+    user: { id: user._id, name: user.name, email: user.email, role: finalRole },
   });
 });
 
 export const login = asyncHandler(async (req: Request, res: Response) => {
-  const { email, password } = req.body;
+  const { email, password, role } = req.body;
+
+  console.log("[AUTH] Login attempt with email:", email);
+  console.log("[AUTH] Login - role selected by user:", role);
 
   if (!email || !password)
     throw createError("Email and password are required", 400);
 
-  const user = await User.findOne({ email }).select("+password");
-  if (!user || !(await user.comparePassword(password))) {
+  const finalRole = role || "student";
+
+  // Check BOTH collections to see where this email exists
+  const [parentAccount, studentAccount] = await Promise.all([
+    Parent.findOne({ email }).select("+password"),
+    User.findOne({ email }).select("+password"),
+  ]);
+
+  console.log("[AUTH] Parent account found:", !!parentAccount);
+  console.log("[AUTH] Student account found:", !!studentAccount);
+
+  // Determine actual account location
+  let user: any = null;
+  let actualRole: string = "";
+
+  if (parentAccount && studentAccount) {
+    // Email exists in both - error (shouldn't happen)
+    throw createError("Account data conflict. Please contact support.", 500);
+  } else if (parentAccount) {
+    // Account is in Parent collection
+    user = parentAccount;
+    actualRole = "parent";
+    console.log("[AUTH] Account found in PARENT collection");
+  } else if (studentAccount) {
+    // Account is in User collection
+    user = studentAccount;
+    actualRole = "student";
+    console.log("[AUTH] Account found in STUDENT collection");
+  } else {
+    // Account not found anywhere
     throw createError("Invalid email or password", 401);
   }
+
+  // Verify selected role matches actual account location
+  if (finalRole !== actualRole) {
+    console.log(
+      `[AUTH] Role mismatch! Selected: ${finalRole}, Actual: ${actualRole}`,
+    );
+    throw createError(
+      `This account is registered as a ${actualRole}. Please select "${actualRole}" to login.`,
+      403,
+    );
+  }
+
+  // Verify password
+  if (!(await user.comparePassword(password))) {
+    throw createError("Invalid email or password", 401);
+  }
+
+  console.log("[AUTH] Password verified");
 
   user.lastLogin = new Date();
   await user.save({ validateBeforeSave: false });
 
-  const token = signToken(String(user._id), user.role, user.email);
+  const token = signToken(String(user._id), actualRole, user.email);
+
+  console.log("[AUTH] Login successful - role:", actualRole);
 
   res.json({
     success: true,
     message: "Login successful",
     token,
-    user: { id: user._id, name: user.name, email: user.email, role: user.role },
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: actualRole,
+    },
   });
 });
 
 export const getMe = asyncHandler(
-  async (req: Request & { user?: { id: string } }, res: Response) => {
-    const user = await User.findById(req.user?.id);
+  async (
+    req: Request & { user?: { id: string; role: string } },
+    res: Response,
+  ) => {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    console.log("[AUTH] getMe - userId:", userId, "role:", userRole);
+
+    let user: any;
+
+    // Look in appropriate collection based on role in token
+    if (userRole === "parent") {
+      user = await Parent.findById(userId);
+    } else {
+      user = await User.findById(userId);
+    }
+
     if (!user) throw createError("User not found", 404);
 
-    const profile = await StudentProfile.findOne({ userId: user._id });
+    const profile =
+      userRole === "student"
+        ? await StudentProfile.findOne({ userId: user._id })
+        : null;
 
     res.json({
       success: true,
@@ -93,7 +202,7 @@ export const getMe = asyncHandler(
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role: userRole,
         },
         profile,
       },
@@ -102,9 +211,23 @@ export const getMe = asyncHandler(
 );
 
 export const changePassword = asyncHandler(
-  async (req: Request & { user?: { id: string } }, res: Response) => {
+  async (
+    req: Request & { user?: { id: string; role: string } },
+    res: Response,
+  ) => {
     const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user?.id).select("+password");
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    let user: any;
+
+    // Look in appropriate collection based on role in token
+    if (userRole === "parent") {
+      user = await Parent.findById(userId).select("+password");
+    } else {
+      user = await User.findById(userId).select("+password");
+    }
+
     if (!user) throw createError("User not found", 404);
 
     if (!(await user.comparePassword(currentPassword))) {
