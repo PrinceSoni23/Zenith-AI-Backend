@@ -157,14 +157,12 @@ export const getDailyFlow = asyncHandler(
         streakDays: profile?.streakDays || 0,
         classLevel: profile?.classLevel || "Class 10",
         board: profile?.board || "ICSE",
-        weakSubjects: profile?.weakSubjects || [],
       });
 
       // Generate predefined daily tasks (no AI call needed)
       const dailyTasks = generatePredefinedDailyTasks({
         subjects: profile?.subjects || ["Maths", "Science", "English"],
         classLevel: profile?.classLevel || "Class 10",
-        weakSubjects: profile?.weakSubjects || [],
         availableMinutes: 60,
       });
 
@@ -242,14 +240,12 @@ export const getFreshDailyFlow = asyncHandler(
       streakDays: profile?.streakDays || 0,
       classLevel: profile?.classLevel || "Class 10",
       board: profile?.board || "ICSE",
-      weakSubjects: profile?.weakSubjects || [],
     });
 
     // Generate predefined daily tasks (no AI call needed)
     const dailyTasks = generatePredefinedDailyTasks({
       subjects: profile?.subjects || ["Maths", "Science", "English"],
       classLevel: profile?.classLevel || "Class 10",
-      weakSubjects: profile?.weakSubjects || [],
       availableMinutes: 60,
     });
 
