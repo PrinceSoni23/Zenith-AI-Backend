@@ -8,6 +8,10 @@ import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { logger } from "../utils/logger";
 import { cacheService } from "../services/cache.service";
+import {
+  generatePredefinedMentorMessage,
+  generatePredefinedDailyTasks,
+} from "../services/predefinedMessages.service";
 
 export const dispatchAgent = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -105,9 +109,12 @@ export const dispatchAgent = asyncHandler(
 );
 
 /**
- * getDailyFlow - Cached AI mentor message + study plan
- * Uses 30-minute cache to avoid calling AI APIs too frequently
- * Falls back to cached data if fresh AI call fails
+ * getDailyFlow - Returns predefined mentor message + daily tasks
+ * Uses template-based messages instead of AI to:
+ * - Eliminate API calls
+ * - Improve response speed
+ * - Provide consistent, high-quality messages
+ * Uses 24-hour cache to avoid regenerating messages unnecessarily
  */
 export const getDailyFlow = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -116,7 +123,7 @@ export const getDailyFlow = asyncHandler(
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // ── Check cache first (TTL: 30 minutes) ──
+    // ── Check cache first (TTL: 24 hours) ──
     const cacheKey = `daily-flow:${userId}`;
     const cached = cacheService.get(cacheKey);
     if (cached) {
@@ -125,9 +132,12 @@ export const getDailyFlow = asyncHandler(
         success: true,
         data: cached,
         fromCache: true,
+        processingTime: 0,
       });
       return;
     }
+
+    const start = Date.now();
 
     try {
       const profile = await StudentProfile.findOne({ userId: userObjectId });
@@ -138,49 +148,46 @@ export const getDailyFlow = asyncHandler(
         );
       }
 
-      const weakTopics = await WeakTopic.find({
-        userId: userObjectId,
-        needsRevision: true,
-      })
-        .limit(5)
-        .lean();
+      // Extract student name (before @ in email)
+      const studentName = req.user?.email?.split("@")[0] || "Student";
 
-      const agentInput = {
-        userId,
-        classLevel: profile?.classLevel || "Class 6",
-        board: profile?.board || "CBSE",
-        preferredLanguage: profile?.preferredLanguage || "English",
-        additionalContext: {
-          studentName: req.user?.email?.split("@")[0],
-          weakTopics: weakTopics.map(w => `${w.subject}: ${w.topic}`),
-          streakDays: profile?.streakDays || 0,
-          studyScore: profile?.studyScore || 0,
-          subjects: profile?.subjects,
-          availableMinutes: 60,
-        },
-      };
+      // Generate predefined mentor message (no AI call needed)
+      const mentorMessage = generatePredefinedMentorMessage({
+        studentName,
+        streakDays: profile?.streakDays || 0,
+        classLevel: profile?.classLevel || "Class 10",
+        board: profile?.board || "ICSE",
+        weakSubjects: profile?.weakSubjects || [],
+      });
 
-      const result = await AIOrchestrator.runDailyFlow(agentInput);
+      // Generate predefined daily tasks (no AI call needed)
+      const dailyTasks = generatePredefinedDailyTasks({
+        subjects: profile?.subjects || ["Maths", "Science", "English"],
+        classLevel: profile?.classLevel || "Class 10",
+        weakSubjects: profile?.weakSubjects || [],
+        availableMinutes: 60,
+      });
 
       const responseData = {
-        mentor: result.mentorMessage.data,
-        tasks: result.dailyTasks.data,
+        mentor: mentorMessage,
+        tasks: dailyTasks,
       };
 
-      // ── Cache the response for 30 minutes ──
-      cacheService.set(cacheKey, responseData, 1800);
+      // ── Cache the response for 24 hours ──
+      cacheService.set(cacheKey, responseData, 86400); // 24 hours
       logger.info(
-        `[getDailyFlow] Cached new response for user ${userId} (TTL: 30min)`,
+        `[getDailyFlow] Generated predefined message for user ${userId} in ${Date.now() - start}ms`,
       );
 
       res.json({
         success: true,
         data: responseData,
         fromCache: false,
+        processingTime: Date.now() - start,
       });
     } catch (error) {
       logger.error(
-        `[getDailyFlow] AI call failed, attempting fallback cache: ${error}`,
+        `[getDailyFlow] Error generating predefined message: ${error}`,
       );
 
       // Try to serve stale cache as fallback
@@ -191,7 +198,8 @@ export const getDailyFlow = asyncHandler(
           data: staleCache,
           fromCache: true,
           isStale: true,
-          message: "Serving from cache due to API delay",
+          message: "Serving from cache due to error",
+          processingTime: Date.now() - start,
         });
         return;
       }
@@ -202,7 +210,7 @@ export const getDailyFlow = asyncHandler(
 );
 
 /**
- * getFreshDailyFlow - Force refresh of AI data (bypasses cache)
+ * getFreshDailyFlow - Force refresh of predefined message (bypasses cache)
  * Use this for explicit refresh requests
  */
 export const getFreshDailyFlow = asyncHandler(
@@ -211,6 +219,7 @@ export const getFreshDailyFlow = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    const start = Date.now();
 
     // Clear cache to force refresh
     const cacheKey = `daily-flow:${userId}`;
@@ -224,42 +233,42 @@ export const getFreshDailyFlow = asyncHandler(
       );
     }
 
-    const weakTopics = await WeakTopic.find({
-      userId: userObjectId,
-      needsRevision: true,
-    })
-      .limit(5)
-      .lean();
+    // Extract student name (before @ in email)
+    const studentName = req.user?.email?.split("@")[0] || "Student";
 
-    const agentInput = {
-      userId,
-      classLevel: profile?.classLevel || "Class 6",
-      board: profile?.board || "CBSE",
-      preferredLanguage: profile?.preferredLanguage || "English",
-      additionalContext: {
-        studentName: req.user?.email?.split("@")[0],
-        weakTopics: weakTopics.map(w => `${w.subject}: ${w.topic}`),
-        streakDays: profile?.streakDays || 0,
-        studyScore: profile?.studyScore || 0,
-        subjects: profile?.subjects,
-        availableMinutes: 60,
-      },
-    };
+    // Generate predefined mentor message (no AI call needed)
+    const mentorMessage = generatePredefinedMentorMessage({
+      studentName,
+      streakDays: profile?.streakDays || 0,
+      classLevel: profile?.classLevel || "Class 10",
+      board: profile?.board || "ICSE",
+      weakSubjects: profile?.weakSubjects || [],
+    });
 
-    const result = await AIOrchestrator.runDailyFlow(agentInput);
+    // Generate predefined daily tasks (no AI call needed)
+    const dailyTasks = generatePredefinedDailyTasks({
+      subjects: profile?.subjects || ["Maths", "Science", "English"],
+      classLevel: profile?.classLevel || "Class 10",
+      weakSubjects: profile?.weakSubjects || [],
+      availableMinutes: 60,
+    });
 
     const responseData = {
-      mentor: result.mentorMessage.data,
-      tasks: result.dailyTasks.data,
+      mentor: mentorMessage,
+      tasks: dailyTasks,
     };
 
-    // Cache the fresh response
-    cacheService.set(cacheKey, responseData, 1800);
+    // Cache the response for 24 hours
+    cacheService.set(cacheKey, responseData, 86400);
+    logger.info(
+      `[getFreshDailyFlow] Generated fresh predefined message for user ${userId}`,
+    );
 
     res.json({
       success: true,
       data: responseData,
       fromCache: false,
+      processingTime: Date.now() - start,
     });
   },
 );
