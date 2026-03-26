@@ -11,6 +11,16 @@ export const visionLensAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const imageBase64 = input.imageBase64 || "";
   const mimeType = input.mimeType || "image/jpeg";
   const question = input.question || "Please explain what is in this image.";
@@ -34,6 +44,16 @@ Your job is to:
 4. Suggest related topics they should explore
 5. Give one practical study tip based on what you see
 
+${
+  language === "hindi"
+    ? `LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script).
+Use simple Hindi: "यह दिखाता है कि..." "महत्वपूर्ण बिंदु:"`
+    : language === "hinglish"
+      ? `LANGUAGE: Respond ENTIRELY in HINGLISH (Hindi in Roman script).
+Use familiar Hinglish: "Yeh dikhata hai ki..." "Mukhya points:"`
+      : `LANGUAGE: Respond ENTIRELY in clear, simple English.`
+}
+
 Always explain things in simple language suitable for school students.
 
 Respond with valid JSON in this exact format:
@@ -45,6 +65,7 @@ Respond with valid JSON in this exact format:
 }`;
 
   const userQuestion = `${buildStudentContext(input)}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Student's question: ${question}
 

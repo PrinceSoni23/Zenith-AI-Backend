@@ -11,8 +11,29 @@ export const parentInsightAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are an educational analytics expert providing insights to parents about their child's learning.
 Analyze study patterns and generate actionable, encouraging insights.
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Provide ALL insights and recommendations ENTIRELY in Hindi (Devanagari script).
+Use encouraging Hindi for parents: "आपका बच्चा बहुत अच्छा प्रयास कर रहा है।"`
+    : language === "hinglish"
+      ? `LANGUAGE: Provide ALL insights and recommendations ENTIRELY in HINGLISH (Hindi in Roman script).
+Use encouraging Hinglish: "Aapka beta bahut achcha try kar raha hai."`
+      : `LANGUAGE: Provide ALL insights and recommendations ENTIRELY in clear, simple English.`
+}
+
 Respond with valid JSON in this format:
 {
   "overallSummary": "string",
@@ -44,6 +65,7 @@ Weak topics: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || 
 Streak: ${input.additionalContext?.streakDays || 0} days
 Study score: ${input.additionalContext?.studyScore || 0}
 Total study time this week: ${input.additionalContext?.weeklyMinutes || 0} minutes
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Generate comprehensive parent insights.`;
 

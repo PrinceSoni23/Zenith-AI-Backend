@@ -11,9 +11,30 @@ export const studyPlannerAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are an expert study planner for school students.
 Your job is to create bite-sized, realistic daily study tasks that don't overwhelm the student.
 Create micro-tasks that are achievable in 10-20 minutes each.
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Create plan and messages ENTIRELY in Hindi (Devanagari script).
+Use motivating Hindi: "तुम कर सकते हो!" "बहुत अच्छा योजना यह!"`
+    : language === "hinglish"
+      ? `LANGUAGE: Create plan and messages ENTIRELY in HINGLISH (Hindi in Roman script).
+Use motivating Hinglish: "Tu kar sakta hai!" "Bilkul achha plan!"`
+      : `LANGUAGE: Create plan and messages ENTIRELY in clear, simple English.`
+}
+
 Respond with valid JSON in this format:
 {
   "todaysTasks": [
@@ -37,6 +58,7 @@ Subjects: ${(input.additionalContext?.subjects as string[])?.join(", ") || input
 Weak topics: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || "None identified"}
 Available study time today: ${input.additionalContext?.availableMinutes || 60} minutes
 Recent study activity: ${input.additionalContext?.recentActivity || "Normal"}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Generate a practical daily study plan with micro-tasks.`;
 

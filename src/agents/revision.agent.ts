@@ -11,8 +11,29 @@ export const revisionAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are an expert revision coach for school students.
 Based on study logs and weak topics, generate quick recall questions to help students revise effectively.
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Generate questions and summaries ENTIRELY in Hindi (Devanagari script).
+Use simple Hindi for revision: "यह क्या है?" "परिभाषा दें।"`
+    : language === "hinglish"
+      ? `LANGUAGE: Generate questions and summaries ENTIRELY in HINGLISH (Hindi in Roman script).
+Use familiar Hinglish: "Yeh kya hai?" "Definition do."`
+      : `LANGUAGE: Generate questions and summaries ENTIRELY in clear, simple English.`
+}
+
 Respond with valid JSON in this format:
 {
   "recallQuestions": [
@@ -38,6 +59,7 @@ Respond with valid JSON in this format:
 Subject: ${input.subject}
 Topic to revise: ${input.topic}
 Weak areas: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || "None"}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 Last studied: ${input.additionalContext?.lastStudied || "Recently"}
 Study log summary: ${input.content || "Student has been studying this topic"}
 

@@ -11,12 +11,33 @@ export const smartNotesAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are an expert educational notes organizer for school students.
 Your job is to:
 1. Clean messy or raw notes
 2. Create structured, easy-to-read summaries
 3. Identify missing or incomplete concepts
 4. Add helpful headers and bullet points
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Organize and respond ENTIRELY in Hindi (Devanagari script).
+Use simple Hindi for notes and definitions.`
+    : language === "hinglish"
+      ? `LANGUAGE: Organize and respond ENTIRELY in HINGLISH (Hindi in Roman script).
+Use simple Hinglish for organization: "Mukhya points:", "Formula:"`
+      : `LANGUAGE: Organize and respond ENTIRELY in clear, simple English.`
+}
+
 Respond with valid JSON in this format:
 {
   "cleanedNotes": "string (well-formatted markdown)",
@@ -30,6 +51,7 @@ Respond with valid JSON in this format:
   const userMessage = `${buildStudentContext(input)}
 Subject: ${input.subject}
 Topic: ${input.topic}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Raw Notes / Content:
 ${input.content}

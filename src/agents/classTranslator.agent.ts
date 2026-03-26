@@ -28,7 +28,16 @@ export const classTranslatorAgent = async (
   // Build language instruction
   let languageInstruction = "";
 
-  if (language === "hinglish") {
+  if (language === "hindi") {
+    languageInstruction = `Respond ONLY in Hindi (Devanagari script). 
+Use simple, clear Hindi that students can easily understand.
+Examples of good Hindi:
+- "यह अवधारणा बहुत सरल है।"
+- "इसका मतलब है कि..."
+- "समझ गए हैं न?"
+Use words like: यह, वह, भाई, देखो, समझ, हैं, मतलब, इसका, रोज़, आदि।
+Keep it friendly and conversational, like a teacher speaking in class.`;
+  } else if (language === "hinglish") {
     languageInstruction = `Respond in HINGLISH (Hindi written in Roman script). 
 Mix Hindi and English naturally as Indian students do. Examples:
 - "Yeh concept bahut simple hai bhai!"
@@ -43,12 +52,18 @@ Keep it casual and friendly, like talking to a friend.`;
   const systemPrompt = `You are an expert educational translator helping Indian school students understand their lessons better.
 
 ${
-  language === "hinglish"
+  language === "hindi"
     ? `
+LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script)
+Use simple, clear Hindi.
+Examples: "यह एक महत्वपूर्ण अवधारणा है।" "इसका मतलब है कि..."
+Avoid difficult Sanskrit/technical Hindi - use colloquial Hindi.`
+    : language === "hinglish"
+      ? `
 LANGUAGE: Respond ENTIRELY in HINGLISH (Hindi written in Roman script)
 Mix Hindi and English naturally like: "Yeh concept bahut simple hai bhai!"
 Use words: yeh, wo, bhai, dekho, samajh, hain, matlab, iska, daily, ke, ka, ki, etc.`
-    : `
+      : `
 LANGUAGE: Respond ENTIRELY in clear, simple English
 Use simple words and short sentences.
 Avoid jargon and technical terms.`
@@ -72,13 +87,13 @@ CRITICAL: Return ONLY this JSON format:
 
   const userMessage = `${buildStudentContext(input)}
 
-${language === "hinglish" ? "🇮🇳 RESPOND IN HINGLISH (Hindi in Roman script)" : "🇬🇧 RESPOND IN ENGLISH"}
+${language === "hindi" ? "🇮🇳 हिंदी में जवाब दीजिए" : language === "hinglish" ? "🇮🇳 RESPOND IN HINGLISH (Hindi in Roman script)" : "🇬🇧 RESPOND IN ENGLISH"}
 
 Topic to explain: ${input.subject || "General"}
 Concept: ${input.content}
 Student Level: ${input.classLevel || "General"}
 
-Create a simple, friendly explanation using ${language === "hinglish" ? "Hinglish" : "English"}.`;
+Create a simple, friendly explanation using ${language === "hindi" ? "Hindi" : language === "hinglish" ? "Hinglish" : "English"}.`;
 
   try {
     const result = await callOpenAI(systemPrompt, userMessage, 1500);
@@ -99,27 +114,37 @@ Create a simple, friendly explanation using ${language === "hinglish" ? "Hinglis
         language,
       );
       const defaultExplanation =
-        language === "hinglish"
-          ? "Yeh concept bahut simple hai aur samajhne mein aasan. Iska matlab hai ki complex ideas ko chhote-chhote parts mein samjhenge."
-          : `This is an important concept in ${input.subject || "your studies"}. It helps you understand the key ideas by breaking them down into simple parts that are easy to remember and apply.`;
+        language === "hindi"
+          ? "यह एक महत्वपूर्ण अवधारणा है। इसका मतलब है कि हम जटिल विचारों को सरल भागों में समझते हैं।"
+          : language === "hinglish"
+            ? "Yeh concept bahut simple hai aur samajhne mein aasan. Iska matlab hai ki complex ideas ko chhote-chhote parts mein samjhenge."
+            : `This is an important concept in ${input.subject || "your studies"}. It helps you understand the key ideas by breaking them down into simple parts that are easy to remember and apply.`;
 
       const defaultExample =
-        language === "hinglish"
-          ? "Dekho, tumhare daily life mein yeh concept aise dikhai deta hai - jaise weather badalne ke time ya objects ke movement mein."
-          : `You can see this concept everywhere in your daily life. Think about everyday situations - like how you use your phone, how plants grow, or how weather changes. All of these involve the principles we're learning.`;
+        language === "hindi"
+          ? "देखो, तुम्हारे रोज़मर्रा के जीवन में यह अवधारणा ऐसे दिखाई देती है - जैसे मौसम बदलने के समय या चीज़ों की गति में।"
+          : language === "hinglish"
+            ? "Dekho, tumhare daily life mein yeh concept aise dikhai deta hai - jaise weather badalne ke time ya objects ke movement mein."
+            : `You can see this concept everywhere in your daily life. Think about everyday situations - like how you use your phone, how plants grow, or how weather changes. All of these involve the principles we're learning.`;
 
       const defaultPoints =
-        language === "hinglish"
+        language === "hindi"
           ? [
-              "Key Point 1: Basics samajhna zaruri hai",
-              "Key Point 2: Real life mein application",
-              "Key Point 3: Common galtiyan",
+              "मुख्य बिंदु 1: बुनियादी ज्ञान समझना जरूरी है",
+              "मुख्य बिंदु 2: वास्तविक जीवन में उपयोग",
+              "मुख्य बिंदु 3: आम गलतियाँ",
             ]
-          : [
-              "Key Point 1: Start with the basic definition and core idea",
-              "Key Point 2: Understand how it works in real situations",
-              "Key Point 3: Learn the most common mistakes students make",
-            ];
+          : language === "hinglish"
+            ? [
+                "Key Point 1: Basics samajhna zaruri hai",
+                "Key Point 2: Real life mein application",
+                "Key Point 3: Common galtiyan",
+              ]
+            : [
+                "Key Point 1: Start with the basic definition and core idea",
+                "Key Point 2: Understand how it works in real situations",
+                "Key Point 3: Learn the most common mistakes students make",
+              ];
 
       return {
         success: true,
@@ -137,9 +162,11 @@ Create a simple, friendly explanation using ${language === "hinglish" ? "Hinglis
                 ],
           translatedContent:
             input.content ||
-            (language === "hinglish"
-              ? "Content ka explanation"
-              : "Content explanation"),
+            (language === "hindi"
+              ? "सामग्री की व्याख्या"
+              : language === "hinglish"
+                ? "Content ka explanation"
+                : "Content explanation"),
         },
         processingTime: Date.now() - start,
       };

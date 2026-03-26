@@ -32,6 +32,9 @@ router.get(
     if (!userId) throw createError("Unauthorized", 401);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    const preferredLanguage =
+      (req.query.preferredLanguage as string) || undefined;
+
     const [profile, weakTopics] = await Promise.all([
       StudentProfile.findOne({ userId: userObjectId }),
       WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(3),
@@ -41,8 +44,9 @@ router.get(
       userId,
       classLevel: profile?.classLevel,
       board: profile?.board,
-      preferredLanguage: profile?.preferredLanguage,
+      preferredLanguage: preferredLanguage || profile?.preferredLanguage,
       additionalContext: {
+        language: preferredLanguage || profile?.preferredLanguage,
         streakDays: profile?.streakDays || 0,
         studyScore: profile?.studyScore || 0,
         weakSubjects: weakTopics.map(w => w.subject),
@@ -64,8 +68,9 @@ router.post(
     if (!userId) throw createError("Unauthorized", 401);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
-    const { messages } = req.body as {
+    const { messages, preferredLanguage } = req.body as {
       messages: Array<{ role: "user" | "assistant"; content: string }>;
+      preferredLanguage?: string;
     };
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
@@ -77,6 +82,9 @@ router.post(
       StudentProfile.findOne({ userId: userObjectId }),
       WeakTopic.find({ userId: userObjectId, needsRevision: true }).limit(5),
     ]);
+
+    const language =
+      preferredLanguage || profile?.preferredLanguage || "english";
 
     const systemPrompt = `You are an empathetic, supportive AI Mentor for school students.
 Your role is to have natural, warm conversations — like a wise elder sibling or trusted teacher.
@@ -91,10 +99,18 @@ Student Profile:
 - Name: ${profile?.userId || "Student"}
 - Class: ${profile?.classLevel || "Not specified"}
 - Board: ${profile?.board || "CBSE"}
-- Language: ${profile?.preferredLanguage || "English"}
+- Language: ${language}
 - Study score: ${profile?.studyScore || 0} points
 - Streak: ${profile?.streakDays || 0} days
 - Weak topics: ${weakTopics.map(w => `${w.subject} - ${w.topic}`).join(", ") || "None"}
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script) with simple, clear language suitable for students.`
+    : language === "hinglish"
+      ? `LANGUAGE: Respond ENTIRELY in Hinglish (Hindi in Roman script) with simple, clear language.`
+      : `LANGUAGE: Respond in clear, simple English.`
+}
 
 Guidelines:
 - Be conversational, warm, and encouraging — never robotic or overly formal

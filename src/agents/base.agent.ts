@@ -28,15 +28,15 @@ export interface AgentOutput {
   error?: string;
 }
 
-// Free model fallback chain — all confirmed live as of Feb 2026 (verified via OpenRouter API)
+// Free model fallback chain — favor broadly available multilingual models first.
 const FREE_MODELS = [
-  "meta-llama/llama-3.3-70b-instruct:free", // Meta Llama 3.3 70B — high traffic, stable
-  "openai/gpt-oss-20b:free", // OpenAI open-weight 20B MoE — free tier
-  "openai/gpt-oss-120b:free", // OpenAI open-weight 120B MoE — free tier
-  "stepfun/step-3.5-flash:free", // StepFun 196B MoE — 256K context
-  "z-ai/glm-4.5-air:free", // Z.ai GLM 4.5 Air — 131K context
-  "nvidia/nemotron-3-nano-30b-a3b:free", // NVIDIA Nemotron 30B — 256K context
-  "qwen/qwen3-coder:free", // Qwen3 Coder 480B — 262K context
+  "meta-llama/llama-3.3-70b-instruct:free", // strong multilingual fallback
+  "stepfun/step-3.5-flash:free", // often available on free tier
+  "z-ai/glm-4.5-air:free", // multilingual support
+  "nvidia/nemotron-3-nano-30b-a3b:free", // long-context fallback
+  "qwen/qwen3-coder:free", // backup model
+  "openai/gpt-oss-20b:free", // backup model
+  "openai/gpt-oss-120b:free", // backup model
 ];
 
 /**
@@ -130,26 +130,46 @@ export const callOpenAI = async (
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/i, "")
         .trim();
-      return repairJSON(cleaned) || "{}";
+      const repaired = repairJSON(cleaned) || "{}";
+      console.log(
+        `[callOpenAI] ✅ Model: ${model}, Raw length: ${raw.length}, Repaired: ${repaired.length}`,
+      );
+      return repaired;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[OpenAI Error with model ${model}]:`, msg);
-      // Only fall through to next model on rate-limit or not-found errors
-      if (
-        msg.includes("429") ||
-        msg.includes("404") ||
-        msg.includes("No endpoints") ||
-        msg.includes("401")
-      ) {
+      const errStr = msg.toLowerCase();
+
+      // Determine if this is a retryable error (try next model)
+      const isRetryable =
+        errStr.includes("429") || // Rate limit
+        errStr.includes("503") || // Service unavailable
+        errStr.includes("502") || // Bad gateway
+        errStr.includes("500") || // Server error
+        errStr.includes("no endpoints") || // Model not available
+        errStr.includes("not a valid model id") ||
+        errStr.includes("timeout") ||
+        errStr.includes("timed out") ||
+        msg.includes("401"); // Unauthorized (API key issue for this model)
+
+      console.warn(
+        `[callOpenAI] ⚠️  Model ${model} failed: ${msg.substring(0, 80)} ${isRetryable ? "(retrying...)" : "(fatal)"}`,
+      );
+
+      if (isRetryable) {
         lastError = err;
-        continue;
+        continue; // Try next model
       }
-      throw err; // re-throw any other error immediately
+
+      // Fatal error - don't try other models, just fail
+      console.error(`[callOpenAI] ❌ Fatal error with ${model}:`, msg);
+      throw err;
     }
   }
 
-  // If all models fail, return a fallback response
-  console.warn("[OpenAI] All models failed, returning mock response");
+  // If all models fail, log and return empty fallback
+  console.warn(
+    "[callOpenAI] 🔴 ALL MODELS EXHAUSTED - returning empty JSON fallback",
+  );
   return "{}";
 };
 
@@ -214,22 +234,40 @@ export const callVision = async (
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/i, "")
         .trim();
+      console.log(
+        `[callVision] ✅ Model: ${model}, Response length: ${raw.length}`,
+      );
       return repairJSON(cleaned) || "{}";
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (
-        msg.includes("429") ||
-        msg.includes("404") ||
-        msg.includes("No endpoints") ||
-        msg.includes("unsupported")
-      ) {
+      const errStr = msg.toLowerCase();
+
+      // Determine if this is a retryable error
+      const isRetryable =
+        errStr.includes("429") || // Rate limit
+        errStr.includes("503") || // Service unavailable
+        errStr.includes("502") || // Bad gateway
+        errStr.includes("500") || // Server error
+        errStr.includes("no endpoints") || // Model not available
+        errStr.includes("unsupported") || // Feature not supported for this model
+        errStr.includes("timeout"); // Timeout
+
+      console.warn(
+        `[callVision] ⚠️  Model ${model} failed: ${msg.substring(0, 80)} ${isRetryable ? "(retrying...)" : "(fatal)"}`,
+      );
+
+      if (isRetryable) {
         lastError = err;
         continue;
       }
+
+      // Fatal error - stop trying
+      console.error(`[callVision] ❌ Fatal error with ${model}:`, msg);
       throw err;
     }
   }
 
+  console.warn("[callVision] 🔴 ALL VISION MODELS EXHAUSTED");
   throw lastError;
 };
 

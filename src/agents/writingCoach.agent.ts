@@ -11,9 +11,30 @@ export const writingCoachAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are an expert writing coach for school students.
 Your job is to improve students' essays, answers, and writing with constructive feedback.
 Be encouraging and explain every correction clearly.
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Provide ALL feedback and improved text in Hindi (Devanagari script).
+Be supportive in Hindi. Examples: "बहुत अच्छा!","सुधारें:"`
+    : language === "hinglish"
+      ? `LANGUAGE: Provide ALL feedback and improved text in HINGLISH (Hindi in Roman script).
+Be supportive: "Bahut accha!" "Isse acha banao:"`
+      : `LANGUAGE: Provide ALL feedback and improved text in clear, simple English.`
+}
+
 Respond with valid JSON in this format:
 {
   "improvedText": "string (rewritten/improved version)",
@@ -31,6 +52,7 @@ Respond with valid JSON in this format:
 Subject: ${input.subject}
 Writing Type: ${input.additionalContext?.writingType || "answer"}
 Topic/Title: ${input.topic}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Student's writing:
 ${input.content}

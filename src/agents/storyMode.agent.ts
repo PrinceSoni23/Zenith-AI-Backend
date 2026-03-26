@@ -11,9 +11,30 @@ export const storyModeAgent = async (
 ): Promise<AgentOutput> => {
   const start = Date.now();
 
+  // Extract language from additionalContext or use direct property or fallback
+  const rawLanguage =
+    (input.additionalContext?.language as string) ||
+    (input as any)?.language ||
+    input.preferredLanguage ||
+    "english";
+
+  // Normalize to lowercase for consistent comparison
+  const language = rawLanguage.toLowerCase().trim();
+
   const systemPrompt = `You are a creative educational storyteller for school students.
 Your job is to explain academic chapters and concepts as engaging stories.
 Make it fun, relatable, and memorable for students.
+
+${
+  language === "hindi"
+    ? `LANGUAGE: Tell the story ENTIRELY in Hindi (Devanagari script).
+Make it engaging and fun in Hindi.`
+    : language === "hinglish"
+      ? `LANGUAGE: Tell the story ENTIRELY in HINGLISH (Hindi in Roman script).
+Make it engaging and familiar to Hindi-speaking students.`
+      : `LANGUAGE: Tell the story ENTIRELY in clear, engaging English.`
+}
+
 Respond with valid JSON in this format:
 {
   "storyTitle": "string",
@@ -28,6 +49,7 @@ Respond with valid JSON in this format:
   const userMessage = `${buildStudentContext(input)}
 Subject: ${input.subject}
 Chapter/Topic: ${input.topic || input.content}
+Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
 Create an engaging story that explains this chapter/topic in a fun and memorable way for a ${input.classLevel} student.`;
 

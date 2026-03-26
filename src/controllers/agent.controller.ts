@@ -25,11 +25,16 @@ export const dispatchAgent = asyncHandler(
       imageBase64,
       mimeType,
       question,
+      preferredLanguage,
       language,
+      questionsPerLevel,
     } = req.body;
     const userId = req.user?.id;
 
     // Debug logging
+    logger.info(
+      `[dispatchAgent] Received preferredLanguage parameter: ${preferredLanguage}`,
+    );
     logger.info(`[dispatchAgent] Received language parameter: ${language}`);
     logger.info(
       `[dispatchAgent] Full request body keys: ${Object.keys(req.body).join(", ")}`,
@@ -52,11 +57,16 @@ export const dispatchAgent = asyncHandler(
       );
     }
 
+    // Prioritize page-level language selection over dashboard setting
+    // language (from page dropdown) > preferredLanguage (from request) > profile setting > default
+    const finalLanguage =
+      language || preferredLanguage || profile?.preferredLanguage || "english";
+
     const agentInput = {
       userId,
       classLevel: profile?.classLevel || "Class 6",
       board: profile?.board || "CBSE",
-      preferredLanguage: profile?.preferredLanguage || "English",
+      preferredLanguage: finalLanguage,
       subject,
       topic,
       content,
@@ -66,7 +76,8 @@ export const dispatchAgent = asyncHandler(
       mimeType,
       additionalContext: {
         ...(additionalContext || {}),
-        language: language || "english",
+        language: finalLanguage,
+        questionsPerLevel,
       },
     };
 
