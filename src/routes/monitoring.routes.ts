@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getRequestStats,
   resetRequestStats,
+  getRedisStats,
 } from "../controllers/monitoring.controller";
 
 const router = Router();
@@ -16,5 +17,8 @@ router.get("/request-stats", getRequestStats);
 
 // Reset request statistics (for testing)
 router.post("/request-stats/reset", resetRequestStats);
+
+// Get Redis cache statistics
+router.get("/redis-stats", getRedisStats);
 
 export default router;

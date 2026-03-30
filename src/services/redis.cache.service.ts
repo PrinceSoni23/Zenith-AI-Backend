@@ -13,12 +13,25 @@ class RedisCacheService {
   private isConnected = false;
   private readonly CACHE_PREFIX = "zenith:";
 
+  // In-memory cache fallback when Redis is not available
+  private inMemoryCache = new Map<string, { value: any; expiresAt: number }>();
+
   /**
    * Initialize Redis connection
    */
   async initialize(): Promise<void> {
     try {
-      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+      const redisUrl = process.env.REDIS_URL;
+
+      // If REDIS_URL is empty or not set, skip Redis (use in-memory cache only)
+      if (!redisUrl) {
+        console.warn(
+          "[Redis] ⚠️ REDIS_URL not configured - using in-memory cache (will reset on restart)",
+        );
+        this.isConnected = false;
+        return;
+      }
+
       console.log(`[Redis] Connecting to ${redisUrl}...`);
 
       this.client = createClient({ url: redisUrl });
@@ -34,10 +47,18 @@ class RedisCacheService {
       });
 
       await this.client.connect();
+
+      // Start cleanup interval for in-memory cache
+      this.startInMemoryCleanup();
     } catch (error) {
-      console.error("[Redis] Failed to connect:", error);
+      console.warn(
+        "[Redis] ⚠️ Failed to connect - using in-memory cache only",
+        error instanceof Error ? error.message : error,
+      );
       this.isConnected = false;
-      throw error;
+      // Start cleanup interval for in-memory cache
+      this.startInMemoryCleanup();
+      // Don't throw - allow graceful fallback to in-memory cache
     }
   }
 
@@ -66,15 +87,19 @@ class RedisCacheService {
     value: T,
     ttlSeconds: number = 3600,
   ): Promise<void> {
+    const key = this.generateKey(agentType, params);
+
     if (!this.isConnected || !this.client) {
-      console.warn(
-        "[Redis] Not connected, skipping cache set (data will be in memory only)",
+      // Fallback: Store in in-memory cache
+      const expiresAt = Date.now() + ttlSeconds * 1000;
+      this.inMemoryCache.set(key, { value, expiresAt });
+      console.log(
+        `[Cache] IN-MEMORY SET: ${key.substring(0, 50)}... (TTL: ${ttlSeconds}s)`,
       );
       return;
     }
 
     try {
-      const key = this.generateKey(agentType, params);
       const serialized = JSON.stringify(value);
 
       await this.client.setEx(key, ttlSeconds, serialized);
@@ -94,12 +119,27 @@ class RedisCacheService {
     agentType: string,
     params: Record<string, any>,
   ): Promise<T | null> {
+    const key = this.generateKey(agentType, params);
+
+    // Check in-memory cache first (if Redis not connected)
     if (!this.isConnected || !this.client) {
-      return null;
+      const cached = this.inMemoryCache.get(key);
+
+      if (!cached) {
+        return null;
+      }
+
+      // Check if expired
+      if (Date.now() > cached.expiresAt) {
+        this.inMemoryCache.delete(key);
+        return null;
+      }
+
+      console.log(`[Cache] IN-MEMORY HIT: ${key.substring(0, 50)}...`);
+      return cached.value as T;
     }
 
     try {
-      const key = this.generateKey(agentType, params);
       const cached = await this.client.get(key);
 
       if (!cached) {
@@ -115,6 +155,34 @@ class RedisCacheService {
       console.error("[Redis] Failed to get cache:", error);
       return null;
     }
+  }
+
+  /**
+   * Clean up expired entries from in-memory cache
+   * Runs periodically to prevent memory leaks
+   */
+  private startInMemoryCleanup(): void {
+    // Run cleanup every 5 minutes
+    setInterval(
+      () => {
+        const now = Date.now();
+        let deletedCount = 0;
+
+        for (const [key, entry] of this.inMemoryCache.entries()) {
+          if (now > entry.expiresAt) {
+            this.inMemoryCache.delete(key);
+            deletedCount++;
+          }
+        }
+
+        if (deletedCount > 0) {
+          console.log(
+            `[Cache] IN-MEMORY CLEANUP: Removed ${deletedCount} expired entries (${this.inMemoryCache.size} remaining)`,
+          );
+        }
+      },
+      5 * 60 * 1000,
+    ); // 5 minutes
   }
 
   /**

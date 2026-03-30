@@ -63,17 +63,20 @@ interface CachedAgentResponse {
  * Validate if response data is worth caching
  * Prevents caching errors, empty responses, or fallback text
  */
-const isValidResponseForCache = (data: any): boolean => {
-  // Null or undefined
-  if (!data) return false;
+const isValidResponseForCache = (result: any): boolean => {
+  // If result itself is null/undefined
+  if (!result) return false;
 
-  // Don't cache fallback responses
-  if (data.isFallback === true) {
+  // Don't cache fallback responses (check at result level, not data level)
+  if (result.isFallback === true) {
     console.log(
       "⚠️ NOT storing fallback response (AI failed to generate content)",
     );
     return false;
   }
+
+  const data = result.data;
+  if (!data) return false;
 
   // Empty object
   if (typeof data === "object" && Object.keys(data).length === 0) {
@@ -94,9 +97,6 @@ const isValidResponseForCache = (data: any): boolean => {
   if (typeof data === "object" && data !== null) {
     // If response has error field, don't cache
     if (data.error || data.isError) return false;
-
-    // If response is a fallback/placeholder, validate it has real content
-    if (data.data === null || data.data === undefined) return false;
 
     // If all values are empty, don't cache
     const values = Object.values(data);
@@ -185,6 +185,7 @@ export const dispatchAgent = asyncHandler(
         res.json({
           success: true,
           agentName: cached.agentName,
+          isFallback: cached.isFallback,
           data: cached.data,
           processingTime: 0,
           fromCache: true,
@@ -236,7 +237,7 @@ export const dispatchAgent = asyncHandler(
     // ── CACHE STORAGE ──
     // Store result in cache with appropriate TTL
     // Only cache if response is valid (not empty/error/fallback)
-    if (isValidResponseForCache(result.data)) {
+    if (isValidResponseForCache(result)) {
       const ttl = AGENT_CACHE_TTL[agentType] || 3600; // Default 1 hour
       if (!result.isFallback) {
         await redisCacheService.set(
@@ -278,6 +279,7 @@ export const dispatchAgent = asyncHandler(
     res.json({
       success: true,
       agentName: result.agentName,
+      isFallback: result.isFallback,
       data: result.data,
       processingTime: result.processingTime,
       fromCache: false,

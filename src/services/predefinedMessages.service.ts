@@ -146,7 +146,21 @@ export function generatePredefinedMentorMessage(options: {
 }
 
 /**
+ * Map task titles to task types for frontend icons
+ */
+function getTaskType(title: string): string {
+  const titleLower = title.toLowerCase();
+  if (titleLower.includes("review") || titleLower.includes("revision"))
+    return "revise";
+  if (titleLower.includes("read")) return "read";
+  if (titleLower.includes("practice")) return "solve";
+  if (titleLower.includes("note")) return "write";
+  return "practice";
+}
+
+/**
  * Generate predefined daily tasks (study planner replacement)
+ * Returns a PlanResult object with tasks, goals, and motivational content
  */
 export function generatePredefinedDailyTasks(options: {
   subjects: string[];
@@ -154,12 +168,19 @@ export function generatePredefinedDailyTasks(options: {
   weakSubjects?: string[];
   availableMinutes?: number;
 }): {
-  title: string;
-  description: string;
-  estimatedTime: number;
-  priority: "high" | "medium" | "low";
-  subject: string;
-}[] {
+  todaysTasks: Array<{
+    title: string;
+    description: string;
+    subject: string;
+    taskType: string;
+    estimatedMinutes: number;
+    priority: string;
+  }>;
+  weeklyGoals: string[];
+  motivationalMessage: string;
+  studyTip: string;
+  totalEstimatedMinutes: number;
+} {
   const {
     subjects = ["Maths", "Science", "English"],
     classLevel = "Class 10",
@@ -171,32 +192,32 @@ export function generatePredefinedDailyTasks(options: {
     {
       title: "Review Weak Topics",
       description: "Spend 15 minutes reviewing topics you find challenging",
-      estimatedTime: 15,
+      estimatedMinutes: 15,
       priority: "high" as const,
     },
     {
       title: "Practice Problems",
       description: "Solve 5-10 practice problems to strengthen concepts",
-      estimatedTime: 20,
+      estimatedMinutes: 20,
       priority: "high" as const,
     },
     {
       title: "Read New Chapter",
       description:
         "Read and understand one new chapter from your textbook or notes",
-      estimatedTime: 25,
+      estimatedMinutes: 25,
       priority: "medium" as const,
     },
     {
       title: "Revision Session",
       description: "Quick revision of previously learned topics",
-      estimatedTime: 15,
+      estimatedMinutes: 15,
       priority: "medium" as const,
     },
     {
       title: "Take Notes",
       description: "Create clear and organized notes for today's topic",
-      estimatedTime: 20,
+      estimatedMinutes: 20,
       priority: "medium" as const,
     },
   ];
@@ -204,11 +225,50 @@ export function generatePredefinedDailyTasks(options: {
   // Distribute tasks across available subjects
   const selectedSubjects = subjects.slice(0, Math.ceil(availableMinutes / 20));
 
-  return taskTemplates
+  const todaysTasks = taskTemplates
     .slice(0, Math.min(3, availableMinutes / 15))
     .map(task => ({
       ...task,
+      taskType: getTaskType(task.title),
       subject:
         selectedSubjects[Math.floor(Math.random() * selectedSubjects.length)],
     }));
+
+  const totalEstimatedMinutes = todaysTasks.reduce(
+    (sum, task) => sum + task.estimatedMinutes,
+    0,
+  );
+
+  const weeklyGoals = [
+    `Study at least 3 hours this week`,
+    `Master one weak topic in ${subjects[0]}`,
+    `Complete all practice problems`,
+    `Maintain your study streak`,
+  ];
+
+  const motivationalMessages = [
+    "You've got this! Every hour of study brings you closer to your goals! 🚀",
+    "Learning today = Success tomorrow. Keep pushing! 💪",
+    "Your future self will thank you for the effort today! 🌟",
+    "Remember: Consistency wins. You're building great habits! ✨",
+  ];
+
+  const studyTips = [
+    "Take short 5-minute breaks every 25 minutes (Pomodoro technique)",
+    "Study your hardest subjects when you're most alert",
+    "Active recall: Test yourself instead of just re-reading",
+    "Mix different subjects to keep your mind engaged",
+    "Create visual summaries for complex topics",
+  ];
+
+  return {
+    todaysTasks,
+    weeklyGoals,
+    motivationalMessage:
+      motivationalMessages[
+        Math.floor(Math.random() * motivationalMessages.length)
+      ],
+    studyTip: studyTips[Math.floor(Math.random() * studyTips.length)],
+    totalEstimatedMinutes,
+  };
 }
