@@ -73,6 +73,7 @@ Generate effective revision questions and flashcards.`;
       return {
         success: true,
         agentName: "RevisionAgent",
+        isFallback: true,
         data: {
           recallQuestions: [
             {

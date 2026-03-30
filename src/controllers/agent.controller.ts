@@ -7,11 +7,106 @@ import { StudyLog } from "../models/StudyLog.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { logger } from "../utils/logger";
-import { cacheService } from "../services/cache.service";
+import { redisCacheService } from "../services/redis.cache.service";
+import { requestTracker } from "../services/requestTracker.service";
 import {
   generatePredefinedMentorMessage,
   generatePredefinedDailyTasks,
 } from "../services/predefinedMessages.service";
+
+/**
+ * Generate cache key for agent dispatch
+ * Ensures identical questions use the same cache entry
+ * @param agentType - Type of agent (e.g., "question-generator", "maths-solver")
+ * @param params - Request parameters to generate key from
+ * @returns Cache key string
+ */
+const generateAgentCacheKey = (
+  agentType: string,
+  params: Record<string, any>,
+): string => {
+  // Create a deterministic key from sorted parameters
+  const sortedParams = Object.keys(params)
+    .sort()
+    .map(k => `${k}=${JSON.stringify(params[k])}`)
+    .join("|");
+
+  return `agent:${agentType}:${sortedParams}`;
+};
+
+/**
+ * TTL configuration for different agent types (in seconds)
+ * Question answers can be cached longer since they're static
+ */
+const AGENT_CACHE_TTL: Record<string, number> = {
+  "question-generator": 86400, // 24 hours - questions don't change
+  "maths-solver": 86400, // 24 hours
+  "class-translator": 86400, // 24 hours
+  "writing-coach": 43200, // 12 hours
+  mentor: 3600, // 1 hour - more personal
+  "smart-notes": 86400, // 24 hours
+  revision: 43200, // 12 hours
+  "story-mode": 86400, // 24 hours
+  "study-planner": 3600, // 1 hour - personalized
+};
+
+/**
+ * Type for cached agent response
+ */
+interface CachedAgentResponse {
+  agentName: string;
+  data: any;
+  isFallback?: boolean;
+}
+
+/**
+ * Validate if response data is worth caching
+ * Prevents caching errors, empty responses, or fallback text
+ */
+const isValidResponseForCache = (data: any): boolean => {
+  // Null or undefined
+  if (!data) return false;
+
+  // Don't cache fallback responses
+  if (data.isFallback === true) {
+    console.log(
+      "⚠️ NOT storing fallback response (AI failed to generate content)",
+    );
+    return false;
+  }
+
+  // Empty object
+  if (typeof data === "object" && Object.keys(data).length === 0) {
+    return false;
+  }
+
+  // Empty array
+  if (Array.isArray(data) && data.length === 0) {
+    return false;
+  }
+
+  // Empty string
+  if (typeof data === "string" && (!data || data.trim().length === 0)) {
+    return false;
+  }
+
+  // Check for common error indicators
+  if (typeof data === "object" && data !== null) {
+    // If response has error field, don't cache
+    if (data.error || data.isError) return false;
+
+    // If response is a fallback/placeholder, validate it has real content
+    if (data.data === null || data.data === undefined) return false;
+
+    // If all values are empty, don't cache
+    const values = Object.values(data);
+    if (values.every(v => !v || (Array.isArray(v) && v.length === 0))) {
+      return false;
+    }
+  }
+
+  return true;
+};
 
 export const dispatchAgent = asyncHandler(
   async (req: AuthRequest, res: Response) => {
@@ -28,6 +123,7 @@ export const dispatchAgent = asyncHandler(
       preferredLanguage,
       language,
       questionsPerLevel,
+      skipCache,
     } = req.body;
     const userId = req.user?.id;
 
@@ -62,6 +158,48 @@ export const dispatchAgent = asyncHandler(
     const finalLanguage =
       language || preferredLanguage || profile?.preferredLanguage || "english";
 
+    // ── CACHE LOOKUP ──
+    // Generate cache key based on agent type and parameters
+    const cacheParams = {
+      agentType,
+      subject,
+      topic,
+      content,
+      mode,
+      question,
+      questionsPerLevel,
+      finalLanguage,
+    };
+
+    // Check cache if not explicitly skipped
+    if (!skipCache) {
+      const cached = await redisCacheService.get<CachedAgentResponse>(
+        agentType,
+        cacheParams,
+      );
+      if (cached && !cached.isFallback) {
+        // Track this cache hit request
+        requestTracker.trackRequest(agentType, true);
+
+        logger.info(`[dispatchAgent] Cache HIT for ${agentType}`);
+        res.json({
+          success: true,
+          agentName: cached.agentName,
+          data: cached.data,
+          processingTime: 0,
+          fromCache: true,
+          cacheStats: await redisCacheService.getStats(),
+          requestStats: requestTracker.getStats(),
+        });
+        return;
+      }
+    }
+
+    logger.info(`[dispatchAgent] Cache MISS for ${agentType}, calling API...`);
+
+    // Track this cache miss request (AI will be called)
+    requestTracker.trackRequest(agentType, false);
+
     const agentInput = {
       userId,
       classLevel: profile?.classLevel || "Class 6",
@@ -95,6 +233,33 @@ export const dispatchAgent = asyncHandler(
       throw createError(result.error || "Agent processing failed", 500);
     }
 
+    // ── CACHE STORAGE ──
+    // Store result in cache with appropriate TTL
+    // Only cache if response is valid (not empty/error/fallback)
+    if (isValidResponseForCache(result.data)) {
+      const ttl = AGENT_CACHE_TTL[agentType] || 3600; // Default 1 hour
+      if (!result.isFallback) {
+        await redisCacheService.set(
+          agentType,
+          cacheParams,
+          {
+            agentName: result.agentName,
+            data: result.data,
+            isFallback: result.isFallback,
+          },
+          ttl,
+        );
+      }
+
+      logger.info(
+        `[dispatchAgent] ✅ Cached valid result for ${agentType} (TTL: ${ttl}s)`,
+      );
+    } else {
+      logger.warn(
+        `[dispatchAgent] ⚠️ NOT caching invalid/empty response for ${agentType}. Data will not be reused.`,
+      );
+    }
+
     // Log usage
     if (subject && topic) {
       await StudyLog.create({
@@ -115,6 +280,8 @@ export const dispatchAgent = asyncHandler(
       agentName: result.agentName,
       data: result.data,
       processingTime: result.processingTime,
+      fromCache: false,
+      requestStats: requestTracker.getStats(),
     });
   },
 );
@@ -135,8 +302,7 @@ export const getDailyFlow = asyncHandler(
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
     // ── Check cache first (TTL: 24 hours) ──
-    const cacheKey = `daily-flow:${userId}`;
-    const cached = cacheService.get(cacheKey);
+    const cached = await redisCacheService.get("daily-flow", { userId });
     if (cached) {
       logger.info(`[getDailyFlow] Serving from cache for user ${userId}`);
       res.json({
@@ -183,7 +349,12 @@ export const getDailyFlow = asyncHandler(
       };
 
       // ── Cache the response for 24 hours ──
-      cacheService.set(cacheKey, responseData, 86400); // 24 hours
+      await redisCacheService.set(
+        "daily-flow",
+        { userId },
+        responseData,
+        86400,
+      ); // 24 hours
       logger.info(
         `[getDailyFlow] Generated predefined message for user ${userId} in ${Date.now() - start}ms`,
       );
@@ -200,7 +371,7 @@ export const getDailyFlow = asyncHandler(
       );
 
       // Try to serve stale cache as fallback
-      const staleCache = cacheService.get(cacheKey);
+      const staleCache = await redisCacheService.get("daily-flow", { userId });
       if (staleCache) {
         res.json({
           success: true,
@@ -231,8 +402,7 @@ export const getFreshDailyFlow = asyncHandler(
     const start = Date.now();
 
     // Clear cache to force refresh
-    const cacheKey = `daily-flow:${userId}`;
-    cacheService.delete(cacheKey);
+    await redisCacheService.invalidateAgent("daily-flow");
 
     const profile = await StudentProfile.findOne({ userId: userObjectId });
     if (!profile) {
@@ -266,7 +436,7 @@ export const getFreshDailyFlow = asyncHandler(
     };
 
     // Cache the response for 24 hours
-    cacheService.set(cacheKey, responseData, 86400);
+    await redisCacheService.set("daily-flow", { userId }, responseData, 86400);
     logger.info(
       `[getFreshDailyFlow] Generated fresh predefined message for user ${userId}`,
     );

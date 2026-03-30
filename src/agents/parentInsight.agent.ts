@@ -77,6 +77,7 @@ Generate comprehensive parent insights.`;
       return {
         success: true,
         agentName: "ParentInsightAgent",
+        isFallback: true,
         data: {
           overallSummary:
             "Your child is showing steady progress in their studies with consistent engagement.",

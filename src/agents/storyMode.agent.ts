@@ -61,6 +61,7 @@ Create an engaging story that explains this chapter/topic in a fun and memorable
       return {
         success: true,
         agentName: "StoryModeAgent",
+        isFallback: true,
         data: {
           storyTitle: "An Adventure Through Learning",
           story:

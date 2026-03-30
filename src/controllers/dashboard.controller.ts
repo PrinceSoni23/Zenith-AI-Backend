@@ -6,7 +6,7 @@ import { StudyLog } from "../models/StudyLog.model";
 import { Task } from "../models/Task.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
-import { cacheService } from "../services/cache.service";
+import { redisCacheService } from "../services/redis.cache.service";
 import { logger } from "../utils/logger";
 
 /**
@@ -25,8 +25,9 @@ export const getDashboard = asyncHandler(
     const limit = Math.min(10, parseInt(req.query.limit as string) || 5);
 
     // Check cache for stats (these don't change often)
-    const cacheKey = `dashboard:stats:${userId}`;
-    let cachedStats = cacheService.get(cacheKey);
+    const cachedStats = await redisCacheService.get(`dashboard-stats`, {
+      userId,
+    });
 
     // ── Fetch profile and recent data in parallel ──
     const [profile, recentLogs, pendingTasks, weakTopics, weeklyLogsCached] =
@@ -86,7 +87,12 @@ export const getDashboard = asyncHandler(
       };
 
       // Cache stats for 5 minutes
-      cacheService.set(cacheKey, weeklyStats, 300);
+      await redisCacheService.set(
+        `dashboard-stats`,
+        { userId },
+        weeklyStats,
+        300,
+      );
       logger.info(`[Dashboard] Cached stats for user ${userId}`);
     }
 

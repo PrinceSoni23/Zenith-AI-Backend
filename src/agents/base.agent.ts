@@ -26,6 +26,7 @@ export interface AgentOutput {
   agentName: string;
   processingTime: number;
   error?: string;
+  isFallback?: boolean;
 }
 
 // Free model fallback chain — favor broadly available multilingual models first.

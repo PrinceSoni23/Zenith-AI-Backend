@@ -74,6 +74,7 @@ Solve this in ${mode} mode.`;
       return {
         success: true,
         agentName: "MathsSolverAgent",
+        isFallback: true,
         data: {
           mode: mode,
           hints:

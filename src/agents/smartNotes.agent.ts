@@ -67,6 +67,7 @@ Please clean, organize and improve these notes.`;
       return {
         success: true,
         agentName: "SmartNotesAgent",
+        isFallback: true,
         data: {
           cleanedNotes:
             "# Well-Organized Notes\n\n## Key Concepts\n- Main idea 1\n- Main idea 2\n\n## Important Points\n- Detail 1\n- Detail 2",

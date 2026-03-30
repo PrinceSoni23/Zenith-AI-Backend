@@ -149,6 +149,7 @@ Create a simple, friendly explanation using ${language === "hindi" ? "Hindi" : l
       return {
         success: true,
         agentName: "ClassTranslatorAgent",
+        isFallback: true,
         data: {
           simpleExplanation: defaultExplanation,
           realLifeExample: defaultExample,

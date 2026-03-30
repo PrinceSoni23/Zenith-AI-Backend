@@ -205,6 +205,7 @@ Generate questions at all 4 difficulty levels: easy, medium, hard, and thinking 
       return {
         success: true,
         agentName: "QuestionGeneratorAgent",
+        isFallback: true,
         data: {
           ...buildFallbackQuestions(
             language,
@@ -248,6 +249,7 @@ Generate questions at all 4 difficulty levels: easy, medium, hard, and thinking 
     return {
       success: true,
       agentName: "QuestionGeneratorAgent",
+      isFallback: true,
       data: {
         ...buildFallbackQuestions(language, subject, topic, questionsPerLevel),
         generatedBy: "error-fallback",

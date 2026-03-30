@@ -7,6 +7,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import cron from "node-cron";
 import { connectDB } from "./config/database";
+import { redisCacheService } from "./services/redis.cache.service";
 import { errorHandler } from "./middleware/errorHandler";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { logger } from "./utils/logger";
@@ -30,6 +31,7 @@ import streakRoutes from "./routes/streak.routes";
 import leaderboardRoutes from "./routes/leaderboard.routes";
 import migrationRoutes from "./routes/migration.routes";
 import devRoutes from "./routes/dev.routes";
+import monitoringRoutes from "./routes/monitoring.routes";
 import { runWeeklyReset } from "./controllers/leaderboard.controller";
 import {
   startPersonalPowerHourScheduler,
@@ -80,6 +82,7 @@ app.use("/api/streak", streakRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/migration", migrationRoutes);
 app.use("/api/dev", devRoutes);
+app.use("/api/monitoring", monitoringRoutes);
 
 // Global Error Handler
 app.use(errorHandler);
@@ -169,10 +172,16 @@ cron.schedule("0 0 1 * *", async () => {
 // Start Server
 const startServer = async () => {
   try {
+    // Initialize Redis Cache (persistent, survives restarts)
+    await redisCacheService.initialize();
+
     await connectDB();
     app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📚 AI Learning Companion Backend is live`);
+      logger.info(
+        `💾 Redis cache is ${redisCacheService.isReady() ? "✅ READY" : "⚠️ NOT READY"}`,
+      );
     });
 
     // ── Start personal Power Hour scheduler (fires per-user time every minute) ──

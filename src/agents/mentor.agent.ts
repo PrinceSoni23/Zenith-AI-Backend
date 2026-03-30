@@ -68,6 +68,7 @@ Provide a personalized mentor message for today.`;
       return {
         success: true,
         agentName: "MentorAgent",
+        isFallback: true,
         data: {
           greeting:
             language === "hindi"

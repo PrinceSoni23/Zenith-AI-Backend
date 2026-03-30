@@ -71,6 +71,7 @@ Generate a practical daily study plan with micro-tasks.`;
       return {
         success: true,
         agentName: "StudyPlannerAgent",
+        isFallback: true,
         data: {
           todaysTasks: [
             {

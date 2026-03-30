@@ -67,6 +67,7 @@ Please improve and provide detailed feedback.`;
       return {
         success: true,
         agentName: "WritingCoachAgent",
+        isFallback: true,
         data: {
           improvedText:
             "Your writing has been enhanced for better clarity and impact.",

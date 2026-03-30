@@ -85,6 +85,7 @@ Please analyse the image and answer accordingly.`;
       return {
         success: true,
         agentName: "VisionLensAgent",
+        isFallback: true,
         data: {
           explanation:
             "This image contains educational content. Based on what's shown, here's the explanation: The key concept involves understanding the relationships between different elements shown in the image.",
