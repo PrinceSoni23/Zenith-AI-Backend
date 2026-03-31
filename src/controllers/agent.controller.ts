@@ -10,6 +10,11 @@ import { logger } from "../utils/logger";
 import { redisCacheService } from "../services/redis.cache.service";
 import { requestTracker } from "../services/requestTracker.service";
 import {
+  normalizeParams,
+  smartNormalizeToolParams,
+} from "../utils/inputNormalization";
+import { normalizeSubject, normalizeTopic } from "../utils/validators";
+import {
   generatePredefinedMentorMessage,
   generatePredefinedDailyTasks,
 } from "../services/predefinedMessages.service";
@@ -17,6 +22,7 @@ import {
 /**
  * Generate cache key for agent dispatch
  * Ensures identical questions use the same cache entry
+ * Normalizes string parameters for consistent caching across case/whitespace variations
  * @param agentType - Type of agent (e.g., "question-generator", "maths-solver")
  * @param params - Request parameters to generate key from
  * @returns Cache key string
@@ -25,10 +31,14 @@ const generateAgentCacheKey = (
   agentType: string,
   params: Record<string, any>,
 ): string => {
+  // Normalize all string parameters to ensure consistent cache keys
+  // Handles: "Photosynthesis" vs "photosynthesis" vs "photosynthesis " are all treated the same
+  const normalizedParams = normalizeParams(params);
+
   // Create a deterministic key from sorted parameters
-  const sortedParams = Object.keys(params)
+  const sortedParams = Object.keys(normalizedParams)
     .sort()
-    .map(k => `${k}=${JSON.stringify(params[k])}`)
+    .map(k => `${k}=${JSON.stringify(normalizedParams[k])}`)
     .join("|");
 
   return `agent:${agentType}:${sortedParams}`;
@@ -158,15 +168,53 @@ export const dispatchAgent = asyncHandler(
     const finalLanguage =
       language || preferredLanguage || profile?.preferredLanguage || "english";
 
+    // Use SMART normalization: automatically detects math content in input
+    // If input contains math symbols (x², √, ∫) → preserves them
+    // If input is regular text (Biology, History) → removes special chars
+    // Works for ANY agent and ANY field - no agent-type checking needed!
+    const normalizedInputs = smartNormalizeToolParams({
+      problem: question,
+      topic,
+      question,
+      content,
+      subject,
+      mode,
+    });
+
+    logger.info(
+      `[dispatchAgent] Agent type: ${agentType}, using SMART normalization (auto-detects math content)`,
+    );
+
+    // 🎯 CRITICAL: Apply fuzzy matching + stop words removal for cache key consistency
+    // This ensures similar inputs generate SAME cache key and reuse cached responses
+    // Examples:
+    //   "photosynthesis" → "Photosynthesis"
+    //   "the photosynthesis" → "Photosynthesis" (same key!)
+    //   "definition of photosynthesis" → "Photosynthesis" (same key!)
+    // Result: Only ONE API call for all three variants
+    const cacheReadyInputs = {
+      problem: normalizedInputs.problem,
+      topic: topic
+        ? normalizeTopic(normalizedInputs.topic || topic)
+        : normalizedInputs.topic,
+      question: normalizedInputs.question,
+      content: normalizedInputs.content,
+      subject: subject
+        ? normalizeSubject(normalizedInputs.subject || subject)
+        : normalizedInputs.subject,
+      mode: normalizedInputs.mode,
+    };
+
     // ── CACHE LOOKUP ──
     // Generate cache key based on agent type and parameters
+    // CRITICAL: Use fuzzy-matched values so similar inputs share cache entry
     const cacheParams = {
       agentType,
-      subject,
-      topic,
-      content,
-      mode,
-      question,
+      subject: cacheReadyInputs.subject || subject,
+      topic: cacheReadyInputs.topic,
+      content: cacheReadyInputs.content,
+      mode: cacheReadyInputs.mode || mode,
+      question: cacheReadyInputs.question,
       questionsPerLevel,
       finalLanguage,
     };
@@ -201,16 +249,17 @@ export const dispatchAgent = asyncHandler(
     // Track this cache miss request (AI will be called)
     requestTracker.trackRequest(agentType, false);
 
+    // For math agents, use the preserved math symbols; for others, use normalized
     const agentInput = {
       userId,
       classLevel: profile?.classLevel || "Class 6",
       board: profile?.board || "CBSE",
       preferredLanguage: finalLanguage,
-      subject,
-      topic,
-      content,
-      mode,
-      question,
+      subject: cacheReadyInputs.subject || subject,
+      topic: cacheReadyInputs.topic || topic,
+      content: cacheReadyInputs.content || content,
+      mode: cacheReadyInputs.mode || mode,
+      question: cacheReadyInputs.question || question,
       imageBase64,
       mimeType,
       additionalContext: {

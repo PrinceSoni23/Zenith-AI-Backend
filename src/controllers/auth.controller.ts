@@ -4,6 +4,11 @@ import { User } from "../models/User.model";
 import { Parent } from "../models/Parent.model";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import {
+  validateEmail,
+  validatePassword,
+  validateString,
+} from "../utils/validators";
 
 const signToken = (id: string, role: string, email: string): string => {
   return jwt.sign(
@@ -26,21 +31,40 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   } = req.body;
 
   console.log("[AUTH] Register request - role received:", role);
-  console.log(
-    "[AUTH] Register request - full body keys:",
-    Object.keys(req.body),
-  );
+
+  // Validate email
+  const emailValidation = validateEmail(email);
+  if (!emailValidation.valid) {
+    throw createError(emailValidation.error || "Invalid email", 400);
+  }
+
+  // Validate password strength
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.valid) {
+    throw createError(passwordValidation.error || "Invalid password", 400);
+  }
+
+  // Validate name
+  const nameValidation = validateString(name, "name", 2, 100);
+  if (!nameValidation.valid) {
+    throw createError(nameValidation.error || "Invalid name", 400);
+  }
 
   const finalRole = role || "student";
 
+  // Validate role enum
+  if (!["student", "parent"].includes(finalRole)) {
+    throw createError("Role must be 'student' or 'parent'", 400);
+  }
+
   // Check if email already exists in BOTH collections
   const [existingParent, existingStudent] = await Promise.all([
-    Parent.findOne({ email }),
-    User.findOne({ email }),
+    Parent.findOne({ email: emailValidation.value }),
+    User.findOne({ email: emailValidation.value }),
   ]);
 
   if (existingParent || existingStudent) {
-    console.log("[AUTH] Email already registered:", email);
+    console.log("[AUTH] Email already registered:", emailValidation.value);
     throw createError("Email already registered", 409);
   }
 
@@ -219,6 +243,24 @@ export const changePassword = asyncHandler(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
+    if (!currentPassword || !newPassword) {
+      throw createError("Current and new passwords are required", 400);
+    }
+
+    // Validate new password strength
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.valid) {
+      throw createError(passwordValidation.error || "Invalid password", 400);
+    }
+
+    // Ensure new password is different from current
+    if (currentPassword === newPassword) {
+      throw createError(
+        "New password must be different from current password",
+        400,
+      );
+    }
+
     let user: any;
 
     // Look in appropriate collection based on role in token
@@ -234,7 +276,7 @@ export const changePassword = asyncHandler(
       throw createError("Current password is incorrect", 401);
     }
 
-    user.password = newPassword;
+    user.password = passwordValidation.value;
     await user.save();
 
     res.json({ success: true, message: "Password updated successfully" });

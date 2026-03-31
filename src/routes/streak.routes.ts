@@ -9,6 +9,7 @@ import {
   setPersonalPowerHour,
   getPersonalSchedule,
 } from "../services/powerHour.service";
+import { validateTime } from "../utils/validators";
 
 const router = Router();
 
@@ -44,23 +45,21 @@ router.get("/power-hour/schedule", async (req, res) => {
 router.post("/power-hour/schedule", async (req, res) => {
   try {
     const userId = (req as any).user.id;
-    const { hour, minute } = req.body as { hour: number; minute: number };
+    const { hour, minute } = req.body;
 
-    if (
-      typeof hour !== "number" ||
-      hour < 0 ||
-      hour > 23 ||
-      typeof minute !== "number" ||
-      minute < 0 ||
-      minute > 59
-    ) {
-      res
-        .status(400)
-        .json({ success: false, message: "Invalid hour or minute" });
+    // Use shared validation utility
+    const timeValidation = validateTime(hour, minute);
+    if (!timeValidation.valid) {
+      res.status(400).json({ success: false, message: timeValidation.error });
       return;
     }
 
-    const result = await setPersonalPowerHour(userId, hour, minute);
+    const { hour: validHour, minute: validMinute } = timeValidation.value || {
+      hour,
+      minute,
+    };
+
+    const result = await setPersonalPowerHour(userId, validHour, validMinute);
     if (!result.ok) {
       res.status(409).json({ success: false, message: result.reason });
       return;

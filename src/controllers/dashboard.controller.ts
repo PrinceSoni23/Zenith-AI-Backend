@@ -8,6 +8,7 @@ import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
 import { redisCacheService } from "../services/redis.cache.service";
 import { logger } from "../utils/logger";
+import { normalizePagination } from "../utils/validators";
 
 /**
  * Optimized dashboard endpoint:
@@ -21,8 +22,12 @@ export const getDashboard = asyncHandler(
     if (!userId) throw createError("Unauthorized", 401);
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(10, parseInt(req.query.limit as string) || 5);
+
+    // Safely normalize pagination parameters
+    const { page, limit } = normalizePagination(
+      req.query.page,
+      req.query.limit,
+    );
 
     // Check cache for stats (these don't change often)
     const cachedStats = await redisCacheService.get(`dashboard-stats`, {

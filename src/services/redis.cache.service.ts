@@ -1,5 +1,6 @@
 import { createClient } from "redis";
 import type { RedisClientType } from "redis";
+import { normalizeParams } from "../utils/inputNormalization";
 
 /**
  * Redis Cache Service
@@ -64,11 +65,16 @@ class RedisCacheService {
 
   /**
    * Generate cache key with prefix
+   * Normalizes string parameters for consistent caching across case/whitespace variations
    */
   private generateKey(agentType: string, params: Record<string, any>): string {
-    const sortedParams = Object.keys(params)
+    // Normalize all string parameters to ensure consistent cache keys
+    // Handles: "Photosynthesis" vs "photosynthesis" vs "photosynthesis " are all treated the same
+    const normalizedParams = normalizeParams(params);
+
+    const sortedParams = Object.keys(normalizedParams)
       .sort()
-      .map(k => `${k}=${JSON.stringify(params[k])}`)
+      .map(k => `${k}=${JSON.stringify(normalizedParams[k])}`)
       .join("&");
 
     return `${this.CACHE_PREFIX}${agentType}:${sortedParams}`;
