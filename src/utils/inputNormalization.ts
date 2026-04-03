@@ -167,10 +167,8 @@ function singularize(word: string): string {
     // Redox & Electrochemistry (Class 11+)
     oxidants: "oxidant",
     reductants: "reductant",
-    reactants: "reactant",
     electrodes: "electrode",
     electrolytes: "electrolyte",
-    ions: "ion",
 
     // ════════════════════════════════════════════════════════
     // PHYSICS - All Classes
@@ -195,7 +193,6 @@ function singularize(word: string): string {
     periods: "period",
     rays: "ray",
     beams: "beam",
-    photons: "photon",
     lenses: "lens",
     mirrors: "mirror",
     prisms: "prism",
@@ -216,9 +213,6 @@ function singularize(word: string): string {
     generators: "generator",
 
     // Modern Physics (Class 11-12)
-    photons: "photon",
-    electrons: "electron",
-    nuclei: "nucleus",
     quarks: "quark",
     leptons: "lepton",
     bosons: "boson",
@@ -366,7 +360,6 @@ function singularize(word: string): string {
     earthquakes: "earthquake",
     volcanoes: "volcano",
     precipitation: "precipitation",
-    temperatures: "temperature",
     humidities: "humidity",
 
     // Human Geography (Class 8-12)
@@ -374,9 +367,7 @@ function singularize(word: string): string {
     states: "state",
     cities: "city",
     villages: "village",
-    populations: "population",
     migrations: "migration",
-    settlements: "settlement",
     industries: "industry",
     farms: "farm",
     plantations: "plantation",
@@ -1246,8 +1237,6 @@ export function normalizeTopic(
     electronn: "Electron",
     proton: "Proton",
     neutron: "Neutron",
-    nucleus: "Nucleus",
-    nuclei: "Nucleus",
     atomic_number: "Atomic Number",
     mass_number: "Mass Number",
     isotope: "Isotope",
@@ -1420,7 +1409,6 @@ export function normalizeTopic(
     // Motion & Forces (Class 6-9)
     motion: "Motion",
     distance: "Distance",
-    displacement: "Displacement",
     speed: "Speed",
     velocity: "Velocity",
     velocty: "Velocity",
@@ -1465,7 +1453,6 @@ export function normalizeTopic(
     wavength: "Wavelength",
     amplitude: "Amplitude",
     amplitud: "Amplitude",
-    period: "Period",
     sound_wave: "Sound Wave",
     light_wave: "Light Wave",
     electromagnetic_wave: "Electromagnetic Wave",
@@ -1544,7 +1531,6 @@ export function normalizeTopic(
     uncertainty_principle: "Uncertainty Principle",
     radioactivity: "Radioactivity",
     radioactive: "Radioactive",
-    isotope: "Isotope",
     half_life: "Half Life",
     alpha_decay: "Alpha Decay",
     beta_decay: "Beta Decay",
@@ -1593,7 +1579,6 @@ export function normalizeTopic(
     trinomial: "Trinomial",
     coefficient: "Coefficient",
     exponent: "Exponent",
-    power: "Power",
     root: "Root",
     square_root: "Square Root",
     cube_root: "Cube Root",
@@ -1659,7 +1644,6 @@ export function normalizeTopic(
     cuboid: "Cuboid",
     rectangular_prism: "Rectangular Prism",
     pyramid: "Pyramid",
-    prism: "Prism",
     hemisphere: "Hemisphere",
     vertex: "Vertex",
     edge: "Edge",
@@ -1671,7 +1655,6 @@ export function normalizeTopic(
     surface_area: "Surface Area",
     volume: "Volume",
     height: "Height",
-    base: "Base",
     radius: "Radius",
     radious: "Radius",
     diameter: "Diameter",
@@ -1679,8 +1662,6 @@ export function normalizeTopic(
     chord: "Chord",
     arc: "Arc",
     sector: "Sector",
-    tangent: "Tangent",
-    secant: "Secant",
 
     // Coordinate Geometry & Vectors (Class 9-12)
     coordinate_geometry: "Coordinate Geometry",
@@ -1735,7 +1716,6 @@ export function normalizeTopic(
     mode: "Mode",
     standard_deviation: "Standard Deviation",
     variance: "Variance",
-    frequency: "Frequency",
     frequency_distribution: "Frequency Distribution",
     histogram: "Histogram",
     bar_graph: "Bar Graph",
@@ -1745,7 +1725,6 @@ export function normalizeTopic(
     binomial_distribution: "Binomial Distribution",
     poisson_distribution: "Poisson Distribution",
     permutation: "Permutation",
-    combination: "Combination",
     factorial: "Factorial",
     sample_space: "Sample Space",
     event: "Event",
@@ -1901,7 +1880,6 @@ export function normalizeTopic(
     magma: "Magma",
 
     // Human Geography
-    population: "Population",
     demography: "Demography",
     birth_rate: "Birth Rate",
     death_rate: "Death Rate",
@@ -1939,7 +1917,6 @@ export function normalizeTopic(
     analysis: "Analysis",
     anallysis: "Analysis",
     analysys: "Analysis",
-    synthesis: "Synthesis",
     sythesis: "Synthesis",
     system: "System",
     systme: "System",
