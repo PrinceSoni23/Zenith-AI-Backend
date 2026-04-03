@@ -77,7 +77,17 @@ class RedisCacheService {
       .map(k => `${k}=${JSON.stringify(normalizedParams[k])}`)
       .join("&");
 
-    return `${this.CACHE_PREFIX}${agentType}:${sortedParams}`;
+    const key = `${this.CACHE_PREFIX}${agentType}:${sortedParams}`;
+
+    // Debug logging for cache key generation
+    console.log(
+      `[Redis Cache Key] Agent: ${agentType}, Topic: "${normalizedParams.topic}", Subject: "${normalizedParams.subject}"`,
+    );
+    console.log(
+      `[Redis Cache Key] Full key (first 100 chars): ${key.substring(0, 100)}...`,
+    );
+
+    return key;
   }
 
   /**
@@ -161,6 +171,162 @@ class RedisCacheService {
       console.error("[Redis] Failed to get cache:", error);
       return null;
     }
+  }
+
+  /**
+   * 🎯 BACKEND SIMILARITY SEARCH - Shared across ALL users!
+   *
+   * When Student B searches "photns" and Student A cached "photons"
+   * This finds the similar cached response so Student B gets ZERO API cost
+   *
+   * Example flow:
+   *  Student A: "photons" → AI call → cached in Redis
+   *  Student B: "photns" → Exact cache miss → Similarity search → FOUND! → Zero API cost
+   */
+  async findSimilarCachedResponse<T>(
+    agentType: string,
+    topic: string,
+  ): Promise<{ response: T; cachedTopic: string; similarity: number } | null> {
+    if (!topic || topic.trim().length === 0) return null;
+
+    const topicLower = topic.toLowerCase().trim();
+    let bestMatch: {
+      response: T;
+      cachedTopic: string;
+      similarity: number;
+      key: string;
+    } | null = null;
+
+    try {
+      // Get all keys for this agent type from Redis
+      const pattern = `${this.CACHE_PREFIX}${agentType}:*`;
+      const keys = (await this.client?.keys(pattern)) || [];
+
+      for (const key of keys) {
+        try {
+          const cached = await this.client?.get(key);
+          if (!cached) continue;
+
+          // Extract topic from cache key
+          // Key format: "zenith:agent-type:topic={value}&other={value}"
+          const topicMatch = key.match(/topic=([^&]+)/);
+          if (!topicMatch) continue;
+
+          try {
+            const cachedTopic = JSON.parse(decodeURIComponent(topicMatch[1]));
+            if (!cachedTopic || typeof cachedTopic !== "string") continue;
+
+            // Calculate similarity
+            const similarity = this.calculateSimilarity(
+              topicLower,
+              cachedTopic.toLowerCase(),
+            );
+
+            // Accept matches > 70% similar
+            if (similarity > 0.7) {
+              const parsed = JSON.parse(cached) as T;
+              if (!bestMatch || similarity > bestMatch.similarity) {
+                bestMatch = {
+                  response: parsed,
+                  cachedTopic,
+                  similarity,
+                  key,
+                };
+              }
+            }
+          } catch (e) {
+            continue;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      if (bestMatch !== null) {
+        console.log(
+          `[Backend Cache] SIMILARITY HIT: "${topic}" → "${bestMatch.cachedTopic}" (${Math.round(bestMatch.similarity * 100)}% match) - SHARED ACROSS ALL USERS!`,
+        );
+        return {
+          response: bestMatch.response,
+          cachedTopic: bestMatch.cachedTopic,
+          similarity: bestMatch.similarity,
+        };
+      }
+    } catch (error) {
+      console.error("[Redis] Similarity search error:", error);
+    }
+
+    return null;
+  }
+
+  /**
+   * Calculate similarity between two strings (0-1)
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    if (str1 === str2) return 1.0;
+
+    const distance = this.levenshteinDistance(str1, str2);
+    const maxLength = Math.max(str1.length, str2.length);
+    if (maxLength === 0) return 1.0;
+
+    return 1 - distance / maxLength;
+  }
+
+  /**
+   * Calculate Levenshtein distance between two strings
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const len1 = str1.length;
+    const len2 = str2.length;
+    const matrix: number[][] = Array(len2 + 1)
+      .fill(null)
+      .map(() => Array(len1 + 1).fill(0));
+
+    for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+    for (let j = 0; j <= len2; j++) matrix[j][0] = j;
+
+    for (let j = 1; j <= len2; j++) {
+      for (let i = 1; i <= len1; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1,
+          matrix[j - 1][i] + 1,
+          matrix[j - 1][i - 1] + indicator,
+        );
+      }
+    }
+
+    return matrix[len2][len1];
+  }
+
+  /**
+   * Get all cached topics for an agent (for debugging)
+   */
+  async getAllCachedTopics(agentType: string): Promise<string[]> {
+    const topics: string[] = [];
+
+    try {
+      const pattern = `${this.CACHE_PREFIX}${agentType}:*`;
+      const keys = (await this.client?.keys(pattern)) || [];
+
+      for (const key of keys) {
+        const topicMatch = key.match(/topic=([^&]+)/);
+        if (topicMatch) {
+          try {
+            const topic = JSON.parse(decodeURIComponent(topicMatch[1]));
+            if (topic && typeof topic === "string") {
+              topics.push(topic);
+            }
+          } catch (e) {
+            // Skip parsing errors
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[Redis] Failed to get all topics:", error);
+    }
+
+    return topics;
   }
 
   /**

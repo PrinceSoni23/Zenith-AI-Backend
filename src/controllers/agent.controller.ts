@@ -191,7 +191,8 @@ export const dispatchAgent = asyncHandler(
     //   "photosynthesis" → "Photosynthesis"
     //   "the photosynthesis" → "Photosynthesis" (same key!)
     //   "definition of photosynthesis" → "Photosynthesis" (same key!)
-    // Result: Only ONE API call for all three variants
+    //   "photon" vs "photons" → both become "Photon" (same key!) ✨ NEW SINGULARIZATION
+    // Result: Only ONE API call for all variants (including singular/plural)
     const cacheReadyInputs = {
       problem: normalizedInputs.problem,
       topic: topic
@@ -204,6 +205,13 @@ export const dispatchAgent = asyncHandler(
         : normalizedInputs.subject,
       mode: normalizedInputs.mode,
     };
+
+    // 🔍 DEBUG: Log singularization details
+    logger.info(`[dispatchAgent] 🔍 SINGULARIZATION DEBUG:`);
+    logger.info(`  Original topic input: "${topic}"`);
+    logger.info(`  After normalizeTopic(): "${cacheReadyInputs.topic}"`);
+    logger.info(`  Original subject input: "${subject}"`);
+    logger.info(`  After normalizeSubject(): "${cacheReadyInputs.subject}"`);
 
     // ── CACHE LOOKUP ──
     // Generate cache key based on agent type and parameters
@@ -219,6 +227,13 @@ export const dispatchAgent = asyncHandler(
       finalLanguage,
     };
 
+    // 🔍 DEBUG: Log cache params before key generation
+    logger.info(`[dispatchAgent] 🔍 Cache params for key generation:`);
+    logger.info(`  agentType: ${agentType}`);
+    logger.info(`  topic: "${cacheParams.topic}"`);
+    logger.info(`  subject: "${cacheParams.subject}"`);
+    logger.info(`  finalLanguage: ${finalLanguage}`);
+
     // Check cache if not explicitly skipped
     if (!skipCache) {
       const cached = await redisCacheService.get<CachedAgentResponse>(
@@ -229,7 +244,10 @@ export const dispatchAgent = asyncHandler(
         // Track this cache hit request
         requestTracker.trackRequest(agentType, true);
 
-        logger.info(`[dispatchAgent] Cache HIT for ${agentType}`);
+        logger.info(`[dispatchAgent] ✅ Cache HIT for ${agentType}`);
+        logger.info(
+          `[dispatchAgent] 📊 Cache hit! Topic "${topic}" → normalized to "${cacheReadyInputs.topic}"`,
+        );
         res.json({
           success: true,
           agentName: cached.agentName,
@@ -244,10 +262,66 @@ export const dispatchAgent = asyncHandler(
       }
     }
 
-    logger.info(`[dispatchAgent] Cache MISS for ${agentType}, calling API...`);
+    logger.info(
+      `[dispatchAgent] ❌ Cache MISS for ${agentType}, trying similarity search...`,
+    );
+    logger.info(
+      `[dispatchAgent] ❌ Topic "${topic}" → normalized to "${cacheReadyInputs.topic}" (no matching cache found)`,
+    );
+
+    // 🎯 STEP 2: Try SIMILARITY SEARCH in backend cache
+    // If student B searches "photns" and student A cached "photons", we should hit!
+    if (!skipCache && cacheReadyInputs.topic) {
+      const similarMatch =
+        await redisCacheService.findSimilarCachedResponse<CachedAgentResponse>(
+          agentType,
+          cacheReadyInputs.topic,
+        );
+
+      if (similarMatch && !similarMatch.response.isFallback) {
+        logger.info(
+          `[dispatchAgent] 🎯 SIMILARITY HIT: "${cacheReadyInputs.topic}" → "${similarMatch.cachedTopic}" (${Math.round(similarMatch.similarity * 100)}% match)`,
+        );
+        logger.info(
+          `[dispatchAgent] ✅ Returning cached response for similar topic (SHARED ACROSS ALL USERS!)`,
+        );
+
+        // Track this cache hit request
+        requestTracker.trackRequest(agentType, true);
+
+        res.json({
+          success: true,
+          agentName: similarMatch.response.agentName,
+          isFallback: similarMatch.response.isFallback,
+          data: similarMatch.response.data,
+          processingTime: 0,
+          fromCache: true,
+          similarityMatch: {
+            originalTopic: cacheReadyInputs.topic,
+            cachedTopic: similarMatch.cachedTopic,
+            similarity: Math.round(similarMatch.similarity * 100),
+          },
+          cacheStats: await redisCacheService.getStats(),
+          requestStats: requestTracker.getStats(),
+        });
+        return;
+      }
+
+      // Log available cached topics for debugging
+      const allTopics = await redisCacheService.getAllCachedTopics(agentType);
+      if (allTopics.length > 0) {
+        logger.info(
+          `[dispatchAgent] ℹ️ Available cached topics for ${agentType}: ${allTopics.slice(0, 5).join(", ")}${allTopics.length > 5 ? "..." : ""}`,
+        );
+      }
+    }
 
     // Track this cache miss request (AI will be called)
     requestTracker.trackRequest(agentType, false);
+
+    logger.info(
+      `[dispatchAgent] 📡 Making AI call for ${agentType} (no exact or similarity cache match)`,
+    );
 
     // For math agents, use the preserved math symbols; for others, use normalized
     const agentInput = {
