@@ -9,7 +9,12 @@ import cron from "node-cron";
 import { connectDB } from "./config/database";
 import { redisCacheService } from "./services/redis.cache.service";
 import { errorHandler } from "./middleware/errorHandler";
-import { rateLimiter } from "./middleware/rateLimiter";
+import { globalRateLimiter } from "./middleware/rateLimiter.advanced";
+import {
+  ipBlockingMiddleware,
+  rateLimitMonitoringMiddleware,
+} from "./middleware/rateLimitEnforcement";
+import { initializeMonitoring } from "./services/rateLimitMonitor";
 import { logger } from "./utils/logger";
 import { StudentProfile } from "./models/StudentProfile.model";
 import { StudyLog } from "./models/StudyLog.model";
@@ -49,7 +54,16 @@ app.use(
     credentials: true,
   }),
 );
-app.use(rateLimiter);
+
+// IP Blocking & Rate Limit Monitoring (Before Rate Limiter)
+app.use(ipBlockingMiddleware);
+app.use(rateLimitMonitoringMiddleware);
+
+// Global Rate Limiter
+app.use(globalRateLimiter);
+
+// Initialize rate limit monitoring
+initializeMonitoring();
 
 // Body Parsing
 app.use(express.json({ limit: "10mb" }));

@@ -39,3 +39,12 @@ uploads/
 
 # Coverage
 coverage/
+
+# Development & Documentation Files (not for production)
+# These are development guides, implementation notes, and temporary documentation
+*.md
+!README.md
+!package.json
+
+# Development outputs
+build_output.txt

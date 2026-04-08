@@ -21,7 +21,7 @@ Keep the same meaning and tone.`;
 
   try {
     const result = await callOpenAI(systemPrompt, text, 1000);
-    return result.replace(/^["']/, "").replace(/["']$/, "").trim();
+    return result.content.replace(/^["']/, "").replace(/["']$/, "").trim();
   } catch (error) {
     console.error(
       `[Translator] Error translating to ${targetLanguage}:`,
@@ -71,7 +71,11 @@ IMPORTANT:
 
     const result = await callOpenAI(systemPrompt, textInput, 2000);
 
-    if (!result || result === "{}" || result.trim().length === 0) {
+    if (
+      !result ||
+      result.content === "{}" ||
+      result.content.trim().length === 0
+    ) {
       console.warn(
         `[batchTranslateText] ⚠️  Empty response from API, returning originals`,
       );
@@ -79,10 +83,10 @@ IMPORTANT:
     }
 
     // Parse the result - should be line-by-line translations
-    const lines = result
+    const lines = result.content
       .split("\n")
-      .map(line => line.replace(/^\d+\.\s*/, "").trim())
-      .filter(line => line.length > 0);
+      .map((line: string) => line.replace(/^\d+\.\s*/, "").trim())
+      .filter((line: string) => line.length > 0);
 
     console.log(
       `[batchTranslateText] ✅ Got ${lines.length} translations for ${texts.length} texts`,

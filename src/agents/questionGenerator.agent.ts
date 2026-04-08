@@ -4,11 +4,13 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
 import {
   translateQuestionsResponse,
   translateText,
 } from "../utils/translator.util";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 const buildFallbackQuestions = (
   language: string,
@@ -190,7 +192,23 @@ Generate questions at all 4 difficulty levels: easy, medium, hard, and thinking 
     console.log(
       `[QuestionGenerator] 🔄 Attempting API call to generate questions in English...`,
     );
-    const result = await callOpenAI(systemPrompt, translatedUserMessage, 3000);
+    const aiResponse = await callOpenAI(
+      systemPrompt,
+      translatedUserMessage,
+      1800,
+    );
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [QuestionGenerator] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     console.log(
@@ -202,17 +220,21 @@ Generate questions at all 4 difficulty levels: easy, medium, hard, and thinking 
       console.warn(
         `[QuestionGenerator] ⚠️  API returned empty/invalid. Using fallback with language: ${language}`,
       );
+      console.log(
+        "[QuestionGenerator] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.questionGenerator[
+          language as keyof typeof AGENT_FALLBACKS.questionGenerator
+        ] || AGENT_FALLBACKS.questionGenerator.english;
+
       return {
         success: true,
         agentName: "QuestionGeneratorAgent",
         isFallback: true,
         data: {
-          ...buildFallbackQuestions(
-            language,
-            subject,
-            topic,
-            questionsPerLevel,
-          ),
+          ...fallbackData,
           generatedBy: "fallback",
           targetLanguage: language,
         },
@@ -246,12 +268,21 @@ Generate questions at all 4 difficulty levels: easy, medium, hard, and thinking 
   } catch (error) {
     console.error(`[QuestionGenerator] ❌ Error:`, error);
     // Fallback on exception
+    console.log(
+      "[QuestionGenerator] - Exception occurred, using fallback data for language:",
+      language,
+    );
+    const fallbackData =
+      AGENT_FALLBACKS.questionGenerator[
+        language as keyof typeof AGENT_FALLBACKS.questionGenerator
+      ] || AGENT_FALLBACKS.questionGenerator.english;
+
     return {
       success: true,
       agentName: "QuestionGeneratorAgent",
       isFallback: true,
       data: {
-        ...buildFallbackQuestions(language, subject, topic, questionsPerLevel),
+        ...fallbackData,
         generatedBy: "error-fallback",
         targetLanguage: language,
       },

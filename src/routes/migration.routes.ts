@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { User } from "../models/User.model";
 import { Parent } from "../models/Parent.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { devEndpointLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 
@@ -11,6 +12,7 @@ const router = Router();
  */
 router.post(
   "/migrate-parents",
+  devEndpointLimiter,
   asyncHandler(async (_req, res: Response) => {
     console.log("[Migration] Starting parent migration...");
 

@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const smartNotesAgent = async (
   input: AgentInput,
@@ -21,31 +23,26 @@ export const smartNotesAgent = async (
   // Normalize to lowercase for consistent comparison
   const language = rawLanguage.toLowerCase().trim();
 
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Use simple Hindi."
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Use organization like 'Mukhya points:'"
+        : "clear, simple English.";
+
   const systemPrompt = `You are an expert educational notes organizer for school students.
-Your job is to:
-1. Clean messy or raw notes
-2. Create structured, easy-to-read summaries
-3. Identify missing or incomplete concepts
-4. Add helpful headers and bullet points
+Clean messy notes, create structured summaries, identify gaps, add headers and bullets.
 
-${
-  language === "hindi"
-    ? `LANGUAGE: Organize and respond ENTIRELY in Hindi (Devanagari script).
-Use simple Hindi for notes and definitions.`
-    : language === "hinglish"
-      ? `LANGUAGE: Organize and respond ENTIRELY in HINGLISH (Hindi in Roman script).
-Use simple Hinglish for organization: "Mukhya points:", "Formula:"`
-      : `LANGUAGE: Organize and respond ENTIRELY in clear, simple English.`
-}
+Respond ENTIRELY in ${languageDesc}
 
-Respond with valid JSON in this format:
+JSON format:
 {
-  "cleanedNotes": "string (well-formatted markdown)",
+  "cleanedNotes": "string (markdown)",
   "structuredSummary": "string",
   "keyDefinitions": [{"term": "string", "definition": "string"}],
-  "missingConcepts": ["concept1", "concept2"],
-  "studyTips": ["tip1", "tip2"],
-  "importantFormulas": ["formula1", "formula2"]
+  "missingConcepts": ["concept1"],
+  "studyTips": ["tip1"],
+  "importantFormulas": ["formula1"]
 }`;
 
   const userMessage = `${buildStudentContext(input)}
@@ -59,30 +56,37 @@ ${input.content}
 Please clean, organize and improve these notes.`;
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 2000);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1200);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [SmartNotes] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     // If the result is empty object (from fallback), provide default data
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[SmartNotes] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.smartNotes[
+          language as keyof typeof AGENT_FALLBACKS.smartNotes
+        ] || AGENT_FALLBACKS.smartNotes.english;
+
       return {
         success: true,
         agentName: "SmartNotesAgent",
         isFallback: true,
-        data: {
-          cleanedNotes:
-            "# Well-Organized Notes\n\n## Key Concepts\n- Main idea 1\n- Main idea 2\n\n## Important Points\n- Detail 1\n- Detail 2",
-          structuredSummary:
-            "These notes have been organized and structured for better understanding.",
-          keyDefinitions: [
-            { term: "Key Term", definition: "Important concept definition" },
-          ],
-          missingConcepts: ["Consider reviewing prerequisite concepts"],
-          studyTips: [
-            "Read the notes multiple times",
-            "Create practice questions",
-          ],
-          importantFormulas: ["Key formula or concept to remember"],
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

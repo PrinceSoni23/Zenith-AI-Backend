@@ -3,12 +3,14 @@ import mongoose from "mongoose";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { GeneratedQuestion } from "../models/GeneratedQuestion.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { questionsRateLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 router.use(authenticate);
 
 router.post(
   "/",
+  questionsRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);

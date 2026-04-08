@@ -11,11 +11,13 @@ import {
 } from "../utils/validators";
 
 const signToken = (id: string, role: string, email: string): string => {
-  return jwt.sign(
-    { id, role, email },
-    process.env.JWT_SECRET || "fallback_secret",
-    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" } as object,
-  );
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error("JWT_SECRET environment variable is required");
+  }
+  return jwt.sign({ id, role, email }, secret, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  } as object);
 };
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
@@ -29,8 +31,6 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     subjects,
     preferredLanguage,
   } = req.body;
-
-  console.log("[AUTH] Register request - role received:", role);
 
   // Validate email
   const emailValidation = validateEmail(email);
@@ -64,7 +64,6 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
   ]);
 
   if (existingParent || existingStudent) {
-    console.log("[AUTH] Email already registered:", emailValidation.value);
     throw createError("Email already registered", 409);
   }
 
@@ -72,14 +71,12 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 
   // Create in appropriate collection
   if (finalRole === "parent") {
-    console.log("[AUTH] Creating parent account in PARENT collection");
     user = await Parent.create({
       name,
       email,
       password,
     });
   } else {
-    console.log("[AUTH] Creating student account in STUDENT collection");
     user = await User.create({
       name,
       email,
@@ -97,12 +94,6 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  console.log(
-    "[AUTH] User created with role:",
-    finalRole,
-    "in appropriate collection",
-  );
-
   const token = signToken(String(user._id), finalRole, user.email);
 
   res.status(201).json({
@@ -116,9 +107,6 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const { email, password, role } = req.body;
 
-  console.log("[AUTH] Login attempt with email:", email);
-  console.log("[AUTH] Login - role selected by user:", role);
-
   if (!email || !password)
     throw createError("Email and password are required", 400);
 
@@ -129,9 +117,6 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     Parent.findOne({ email }).select("+password"),
     User.findOne({ email }).select("+password"),
   ]);
-
-  console.log("[AUTH] Parent account found:", !!parentAccount);
-  console.log("[AUTH] Student account found:", !!studentAccount);
 
   // Determine actual account location
   let user: any = null;
@@ -144,12 +129,10 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     // Account is in Parent collection
     user = parentAccount;
     actualRole = "parent";
-    console.log("[AUTH] Account found in PARENT collection");
   } else if (studentAccount) {
     // Account is in User collection
     user = studentAccount;
     actualRole = "student";
-    console.log("[AUTH] Account found in STUDENT collection");
   } else {
     // Account not found anywhere
     throw createError("Invalid email or password", 401);
@@ -157,9 +140,6 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
   // Verify selected role matches actual account location
   if (finalRole !== actualRole) {
-    console.log(
-      `[AUTH] Role mismatch! Selected: ${finalRole}, Actual: ${actualRole}`,
-    );
     throw createError(
       `This account is registered as a ${actualRole}. Please select "${actualRole}" to login.`,
       403,
@@ -171,14 +151,10 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
     throw createError("Invalid email or password", 401);
   }
 
-  console.log("[AUTH] Password verified");
-
   user.lastLogin = new Date();
   await user.save({ validateBeforeSave: false });
 
   const token = signToken(String(user._id), actualRole, user.email);
-
-  console.log("[AUTH] Login successful - role:", actualRole);
 
   res.json({
     success: true,
@@ -200,8 +176,6 @@ export const getMe = asyncHandler(
   ) => {
     const userId = req.user?.id;
     const userRole = req.user?.role;
-
-    console.log("[AUTH] getMe - userId:", userId, "role:", userRole);
 
     let user: any;
 

@@ -5,6 +5,7 @@ import { asyncHandler, createError } from "../middleware/errorHandler";
 import { AIOrchestrator } from "../agents/orchestrator";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { WeakTopic } from "../models/WeakTopic.model";
+import { aiAgentRateLimiter } from "../middleware/rateLimiter.advanced";
 import OpenAI from "openai";
 
 const openai = new OpenAI({
@@ -27,6 +28,7 @@ router.use(authenticate);
 
 router.get(
   "/message",
+  aiAgentRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
@@ -133,46 +135,63 @@ Guidelines:
       ...FREE_MODELS.filter(m => m !== primaryModel),
     ];
 
-    let streamed = false;
-    for (const model of allModels) {
-      try {
-        const stream = await openai.chat.completions.create({
-          model,
-          stream: true,
-          messages: [{ role: "system", content: systemPrompt }, ...messages],
-          max_tokens: 600,
-          temperature: 0.8,
-        });
+    try {
+      let streamed = false;
+      for (const model of allModels) {
+        try {
+          const stream = await openai.chat.completions.create({
+            model,
+            stream: true,
+            messages: [{ role: "system", content: systemPrompt }, ...messages],
+            max_tokens: 600,
+            temperature: 0.8,
+          });
 
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta?.content;
-          if (delta) {
-            res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+          for await (const chunk of stream) {
+            if (res.destroyed) break; // Stop if client disconnected
+            const delta = chunk.choices[0]?.delta?.content;
+            if (delta) {
+              res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+            }
           }
+          streamed = true;
+          break;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            msg.includes("429") ||
+            msg.includes("404") ||
+            msg.includes("No endpoints")
+          ) {
+            continue;
+          }
+          throw err; // Re-throw non-retryable errors
         }
-        streamed = true;
-        break;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          msg.includes("429") ||
-          msg.includes("404") ||
-          msg.includes("No endpoints")
-        ) {
-          continue;
-        }
-        throw err;
+      }
+
+      if (!streamed) {
+        res.write(
+          `data: ${JSON.stringify({ delta: "Sorry, I'm having trouble connecting right now. Please try again in a moment 🙏" })}\n\n`,
+        );
+      }
+
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (err: unknown) {
+      // If headers already sent, write error to stream
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Streaming failed" });
+        return;
+      }
+      // Headers already sent, close stream safely
+      if (!res.destroyed) {
+        res.write(
+          `data: ${JSON.stringify({ error: "Connection interrupted" })}\n\n`,
+        );
+        res.write("data: [DONE]\n\n");
+        res.end();
       }
     }
-
-    if (!streamed) {
-      res.write(
-        `data: ${JSON.stringify({ delta: "Sorry, I'm having trouble connecting right now. Please try again in a moment 🙏" })}\n\n`,
-      );
-    }
-
-    res.write("data: [DONE]\n\n");
-    res.end();
   }),
 );
 

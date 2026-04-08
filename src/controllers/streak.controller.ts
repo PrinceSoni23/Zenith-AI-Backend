@@ -237,13 +237,39 @@ export const completeTask = asyncHandler(
     const userObjectId = new mongoose.Types.ObjectId(userId);
     const { taskId } = req.params;
 
+    // CRITICAL: Check if task is already completed before updating
+    // This prevents race condition where simultaneous requests both award XP
+    const existingTask = await Task.findOne({
+      _id: taskId,
+      userId: userObjectId,
+    });
+
+    if (!existingTask) throw createError("Task not found", 404);
+
+    // If already completed, return the task with 0 XP earned (idempotent)
+    if (existingTask.isCompleted) {
+      res.json({
+        success: true,
+        message: "Task already completed",
+        data: {
+          task: existingTask,
+          xpEarned: 0,
+          multiplierActive: false,
+          baseXP: 0,
+          isAlreadyCompleted: true,
+        },
+      });
+      return;
+    }
+
+    // Now safe to update - only this request will award XP
     const task = await Task.findOneAndUpdate(
       { _id: taskId, userId: userObjectId },
       { isCompleted: true, completedAt: new Date() },
       { new: true },
     );
 
-    if (!task) throw createError("Task not found", 404);
+    if (!task) throw createError("Task update failed", 500);
 
     // Check power hour multiplier
     const profile = await StudentProfile.findOne({ userId: userObjectId })

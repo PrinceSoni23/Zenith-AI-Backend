@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const classTranslatorAgent = async (
   input: AgentInput,
@@ -25,78 +27,60 @@ export const classTranslatorAgent = async (
   console.log("ClassTranslator - Normalized language:", language);
   console.log("ClassTranslator - Full input:", JSON.stringify(input, null, 2));
 
-  // Build language instruction
-  let languageInstruction = "";
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Use simple, colloquial Hindi. Example: 'यह एक महत्वपूर्ण अवधारणा है।'"
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Mix naturally: 'Yeh concept bahut simple hai bhai!'"
+        : "clear, simple English with short sentences. Avoid jargon.";
 
-  if (language === "hindi") {
-    languageInstruction = `Respond ONLY in Hindi (Devanagari script). 
-Use simple, clear Hindi that students can easily understand.
-Examples of good Hindi:
-- "यह अवधारणा बहुत सरल है।"
-- "इसका मतलब है कि..."
-- "समझ गए हैं न?"
-Use words like: यह, वह, भाई, देखो, समझ, हैं, मतलब, इसका, रोज़, आदि।
-Keep it friendly and conversational, like a teacher speaking in class.`;
-  } else if (language === "hinglish") {
-    languageInstruction = `Respond in HINGLISH (Hindi written in Roman script). 
-Mix Hindi and English naturally as Indian students do. Examples:
-- "Yeh concept bahut simple hai bhai!"
-- "Dekho, iska matlab kya hai..."
-- "Samajh gaye na?"
-Use words like: yeh, wo, bhai, dekho, samajh, hain, matlab, iska, daily, etc.
-Keep it casual and friendly, like talking to a friend.`;
-  } else {
-    languageInstruction = `Respond in clear, simple English that a student can easily understand.`;
-  }
+  const systemPrompt = `You are an expert educational translator helping Indian school students understand lessons better.
 
-  const systemPrompt = `You are an expert educational translator helping Indian school students understand their lessons better.
-
-${
-  language === "hindi"
-    ? `
-LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script)
-Use simple, clear Hindi.
-Examples: "यह एक महत्वपूर्ण अवधारणा है।" "इसका मतलब है कि..."
-Avoid difficult Sanskrit/technical Hindi - use colloquial Hindi.`
-    : language === "hinglish"
-      ? `
-LANGUAGE: Respond ENTIRELY in HINGLISH (Hindi written in Roman script)
-Mix Hindi and English naturally like: "Yeh concept bahut simple hai bhai!"
-Use words: yeh, wo, bhai, dekho, samajh, hain, matlab, iska, daily, ke, ka, ki, etc.`
-      : `
-LANGUAGE: Respond ENTIRELY in clear, simple English
-Use simple words and short sentences.
-Avoid jargon and technical terms.`
-}
+Respond ENTIRELY in ${languageDesc}
 
 Your task:
-1. Take what a teacher taught and explain it in very simple language
-2. Add relatable, real-life examples that students can relate to
-3. Make it friendly and conversational
-4. Keep explanations short and easy to understand
-5. Respond as ONLY valid JSON - no markdown, no code fences, no extra text
+1. Explain the concept in very simple language (MUST be 50-60+ words)
+2. Add relatable, real-life examples (MUST be 50-60+ words minimum)
+3. Create a formal, exam-ready definition (1-3 sentences, academically appropriate)
+4. Make explanations friendly and conversational
+5. Keep it short but detailed enough for understanding
+6. Return ONLY valid JSON - no markdown, no code fences
 
-CRITICAL: Return ONLY this JSON format:
+CRITICAL REQUIREMENTS:
+- simpleExplanation: MINIMUM 50-60 words, NOT shorter
+- realLifeExample: MINIMUM 50-60 words, NOT shorter
+- Use complete sentences and provide context
+- Break down complex ideas into understandable parts
+
+JSON format:
 {
-  "simpleExplanation": "string",
-  "realLifeExample": "string",
+  "simpleExplanation": "string (50-60+ words minimum)",
+  "realLifeExample": "string (50-60+ words minimum)",
   "keyPoints": ["point1", "point2", "point3"],
-  "relatedConcepts": ["concept1", "concept2"],
-  "translatedContent": "string"
+  "translatedContent": "string",
+  "formalDefinition": "concise, exam-ready definition"
 }`;
 
   const userMessage = `${buildStudentContext(input)}
 
-${language === "hindi" ? "🇮🇳 हिंदी में जवाब दीजिए" : language === "hinglish" ? "🇮🇳 RESPOND IN HINGLISH (Hindi in Roman script)" : "🇬🇧 RESPOND IN ENGLISH"}
-
-Topic to explain: ${input.subject || "General"}
+Topic: ${input.subject || "General"}
 Concept: ${input.content}
-Student Level: ${input.classLevel || "General"}
-
-Create a simple, friendly explanation using ${language === "hindi" ? "Hindi" : language === "hinglish" ? "Hinglish" : "English"}.`;
+Student Level: ${input.classLevel || "General"}`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 1500);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 900);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [ClassTranslator] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     console.log(
       "ClassTranslator - Raw OpenAI result:",
       result.substring(0, 500),
@@ -113,62 +97,16 @@ Create a simple, friendly explanation using ${language === "hindi" ? "Hindi" : l
         "ClassTranslator - Empty parsed result, using fallback data for language:",
         language,
       );
-      const defaultExplanation =
-        language === "hindi"
-          ? "यह एक महत्वपूर्ण अवधारणा है। इसका मतलब है कि हम जटिल विचारों को सरल भागों में समझते हैं।"
-          : language === "hinglish"
-            ? "Yeh concept bahut simple hai aur samajhne mein aasan. Iska matlab hai ki complex ideas ko chhote-chhote parts mein samjhenge."
-            : `This is an important concept in ${input.subject || "your studies"}. It helps you understand the key ideas by breaking them down into simple parts that are easy to remember and apply.`;
-
-      const defaultExample =
-        language === "hindi"
-          ? "देखो, तुम्हारे रोज़मर्रा के जीवन में यह अवधारणा ऐसे दिखाई देती है - जैसे मौसम बदलने के समय या चीज़ों की गति में।"
-          : language === "hinglish"
-            ? "Dekho, tumhare daily life mein yeh concept aise dikhai deta hai - jaise weather badalne ke time ya objects ke movement mein."
-            : `You can see this concept everywhere in your daily life. Think about everyday situations - like how you use your phone, how plants grow, or how weather changes. All of these involve the principles we're learning.`;
-
-      const defaultPoints =
-        language === "hindi"
-          ? [
-              "मुख्य बिंदु 1: बुनियादी ज्ञान समझना जरूरी है",
-              "मुख्य बिंदु 2: वास्तविक जीवन में उपयोग",
-              "मुख्य बिंदु 3: आम गलतियाँ",
-            ]
-          : language === "hinglish"
-            ? [
-                "Key Point 1: Basics samajhna zaruri hai",
-                "Key Point 2: Real life mein application",
-                "Key Point 3: Common galtiyan",
-              ]
-            : [
-                "Key Point 1: Start with the basic definition and core idea",
-                "Key Point 2: Understand how it works in real situations",
-                "Key Point 3: Learn the most common mistakes students make",
-              ];
+      const fallbackData =
+        AGENT_FALLBACKS.classTranslator[
+          language as keyof typeof AGENT_FALLBACKS.classTranslator
+        ] || AGENT_FALLBACKS.classTranslator.english;
 
       return {
         success: true,
         agentName: "ClassTranslatorAgent",
         isFallback: true,
-        data: {
-          simpleExplanation: defaultExplanation,
-          realLifeExample: defaultExample,
-          keyPoints: defaultPoints,
-          relatedConcepts:
-            language === "hinglish"
-              ? ["Related Topic 1", "Related Topic 2"]
-              : [
-                  `Previous topics related to ${input.subject || "this subject"}`,
-                  "Advanced topics to explore next",
-                ],
-          translatedContent:
-            input.content ||
-            (language === "hindi"
-              ? "सामग्री की व्याख्या"
-              : language === "hinglish"
-                ? "Content ka explanation"
-                : "Content explanation"),
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

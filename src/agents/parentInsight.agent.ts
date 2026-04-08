@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const parentInsightAgent = async (
   input: AgentInput,
@@ -59,65 +61,46 @@ Respond with valid JSON in this format:
 }`;
 
   const userMessage = `${buildStudentContext(input)}
-Student Name: ${input.additionalContext?.studentName || "Student"}
-Study logs (last 7 days): ${JSON.stringify(input.additionalContext?.studyLogs || [])}
-Weak topics: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || "None"}
-Streak: ${input.additionalContext?.streakDays || 0} days
-Study score: ${input.additionalContext?.studyScore || 0}
-Total study time this week: ${input.additionalContext?.weeklyMinutes || 0} minutes
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
-Generate comprehensive parent insights.`;
+Name: ${input.additionalContext?.studentName || "Student"}
+Streak: ${input.additionalContext?.streakDays || 0} days
+Score: ${input.additionalContext?.studyScore || 0}
+Weekly time: ${input.additionalContext?.weeklyMinutes || 0} min
+Weak topics: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || "None"}
+
+${JSON.stringify(input.additionalContext?.studyLogs || [])}`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 2000);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1200);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [ParentInsight] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[ParentInsight] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.parentInsight[
+          language as keyof typeof AGENT_FALLBACKS.parentInsight
+        ] || AGENT_FALLBACKS.parentInsight.english;
+
       return {
         success: true,
         agentName: "ParentInsightAgent",
         isFallback: true,
-        data: {
-          overallSummary:
-            "Your child is showing steady progress in their studies with consistent engagement.",
-          learningConsistency: {
-            score: 75,
-            trend: "improving",
-            message:
-              "Your child's study habits are getting stronger and more consistent.",
-          },
-          subjectPerformance: [
-            {
-              subject: "Mathematics",
-              status: "average",
-              insight: "More practice needed in problem-solving",
-            },
-            {
-              subject: "Science",
-              status: "strong",
-              insight: "Excellent conceptual understanding",
-            },
-          ],
-          studyActivity: {
-            todayMinutes: 45,
-            weeklyMinutes: 280,
-            averageDailyMinutes: 40,
-            bestStudyTime: "Evening (6-8 PM)",
-          },
-          weakAreas: ["Math problem-solving", "Essay writing"],
-          strengths: ["Science concepts", "Quick learning"],
-          recommendations: [
-            "Encourage more group study sessions",
-            "Try practice tests weekly",
-          ],
-          parentTips: [
-            "Create a dedicated study space",
-            "Use positive reinforcement",
-          ],
-          encouragementForStudent:
-            "You're doing great! Keep up this momentum and celebrate your progress.",
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

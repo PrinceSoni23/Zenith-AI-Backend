@@ -4,12 +4,14 @@ import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { MathAttempt } from "../models/MathAttempt.model";
 import { WeakTopic } from "../models/WeakTopic.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { questionsRateLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 router.use(authenticate);
 
 router.post(
   "/solve",
+  questionsRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);

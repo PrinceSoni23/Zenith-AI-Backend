@@ -4,7 +4,9 @@ import {
   callVision,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const visionLensAgent = async (
   input: AgentInput,
@@ -35,73 +37,67 @@ export const visionLensAgent = async (
     };
   }
 
-  const systemPrompt = `You are a helpful AI tutor for school students.
-A student has uploaded an image (could be a textbook page, diagram, whiteboard, or notes) and has a question about it.
-Your job is to:
-1. Carefully analyse the image
-2. Answer the student's question clearly and simply
-3. Pull out key learning points from the image
-4. Suggest related topics they should explore
-5. Give one practical study tip based on what you see
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Use simple examples: 'Yeh dikhata hai ki...'"
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Use familiar phrases."
+        : "clear, simple English.";
 
-${
-  language === "hindi"
-    ? `LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script).
-Use simple Hindi: "यह दिखाता है कि..." "महत्वपूर्ण बिंदु:"`
-    : language === "hinglish"
-      ? `LANGUAGE: Respond ENTIRELY in HINGLISH (Hindi in Roman script).
-Use familiar Hinglish: "Yeh dikhata hai ki..." "Mukhya points:"`
-      : `LANGUAGE: Respond ENTIRELY in clear, simple English.`
-}
+  const systemPrompt = `You are a helpful AI tutor for school students analyzing an image.
+Analyze the image and: answer the question, extract key points, suggest topics, give a study tip.
 
-Always explain things in simple language suitable for school students.
+Respond ENTIRELY in ${languageDesc}
 
-Respond with valid JSON in this exact format:
+JSON format:
 {
-  "explanation": "string — clear, friendly answer to the student's question about the image",
-  "keyPoints": ["point1", "point2", "point3"],
+  "explanation": "string",
+  "keyPoints": ["point1", "point2"],
   "relatedTopics": ["topic1", "topic2"],
-  "studyTip": "string — one actionable study tip based on what is in the image"
+  "studyTip": "string"
 }`;
 
   const userQuestion = `${buildStudentContext(input)}
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
-Student's question: ${question}
-
-Please analyse the image and answer accordingly.`;
+Question: ${question}`;
 
   try {
-    const result = await callVision(
+    const aiResponse = await callVision(
       systemPrompt,
       userQuestion,
       imageBase64,
       mimeType,
       1500,
     );
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [VisionLens] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[VisionLens] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.visionLens[
+          language as keyof typeof AGENT_FALLBACKS.visionLens
+        ] || AGENT_FALLBACKS.visionLens.english;
+
       return {
         success: true,
         agentName: "VisionLensAgent",
         isFallback: true,
-        data: {
-          explanation:
-            "This image contains educational content. Based on what's shown, here's the explanation: The key concept involves understanding the relationships between different elements shown in the image.",
-          keyPoints: [
-            "Main concept from the image",
-            "Key relationship or principle",
-            "Important detail to remember",
-          ],
-          relatedTopics: [
-            "Related concept 1",
-            "Related concept 2",
-            "Related concept 3",
-          ],
-          studyTip:
-            "When encountering similar images, focus on identifying the main elements and their relationships to understand the overall concept.",
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

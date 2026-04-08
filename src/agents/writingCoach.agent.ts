@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const writingCoachAgent = async (
   input: AgentInput,
@@ -49,54 +51,44 @@ Respond with valid JSON in this format:
 }`;
 
   const userMessage = `${buildStudentContext(input)}
+
 Subject: ${input.subject}
-Writing Type: ${input.additionalContext?.writingType || "answer"}
-Topic/Title: ${input.topic}
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
+Type: ${input.additionalContext?.writingType || "answer"}
+Topic: ${input.topic}
 
-Student's writing:
-${input.content}
-
-Please improve and provide detailed feedback.`;
+${input.content}`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 2500);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1400);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [WritingCoach] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[WritingCoach] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.writingCoach[
+          language as keyof typeof AGENT_FALLBACKS.writingCoach
+        ] || AGENT_FALLBACKS.writingCoach.english;
+
       return {
         success: true,
         agentName: "WritingCoachAgent",
         isFallback: true,
-        data: {
-          improvedText:
-            "Your writing has been enhanced for better clarity and impact.",
-          grammarFeedback: [
-            "Check sentence structure",
-            "Ensure subject-verb agreement",
-          ],
-          structureFeedback:
-            "Organize your ideas with clear introduction, body, and conclusion.",
-          vocabularyEnhancements: [
-            {
-              original: "good",
-              suggestion: "excellent/outstanding",
-              reason: "More specific and impactful",
-            },
-          ],
-          corrections: [
-            {
-              original: "Example text",
-              corrected: "Improved example text",
-              explanation: "Better phrasing",
-            },
-          ],
-          overallScore: 75,
-          strengths: ["Clear main idea", "Good flow"],
-          areasToImprove: ["Expand with examples", "Improve transitions"],
-          encouragement:
-            "Great effort! With more practice, your writing will become even stronger.",
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

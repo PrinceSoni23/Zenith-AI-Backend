@@ -22,8 +22,14 @@ export const authenticate = (
   }
 
   try {
-    const secret =
-      process.env.JWT_SECRET || "fallback_secret_change_in_production";
+    const secret = process.env.JWT_SECRET;
+
+    if (!secret) {
+      return next(
+        createError("Server configuration error: JWT_SECRET not set", 500),
+      );
+    }
+
     const decoded = jwt.verify(token, secret) as AuthRequest["user"];
     req.user = decoded;
     next();

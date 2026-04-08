@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { profileUpdateRateLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 router.use(authenticate);
@@ -21,6 +22,7 @@ router.get(
 
 router.put(
   "/",
+  profileUpdateRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);

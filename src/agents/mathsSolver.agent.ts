@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const mathsSolverAgent = async (
   input: AgentInput,
@@ -22,167 +24,74 @@ export const mathsSolverAgent = async (
   // Normalize to lowercase for consistent comparison
   const language = rawLanguage.toLowerCase().trim();
 
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Provide clear explanations with examples like 'Pehle data samajhte hain'"
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Mix naturally: 'Pehle humko data ko samajhna hai'"
+        : "clear, simple English. Explain every step.";
+
   const systemPrompt = `You are an expert maths teacher for school students.
-Solve mathematics problems in the requested mode:
-- hint mode: Give 2-3 hints only, don't reveal full solution
-- step-by-step mode: Break into clear numbered steps with explanation
-- full-solution mode: Complete solution with all working shown
-Always explain concepts used, not just the answer.
+Solve problems in the requested mode:
+- hint mode: Give 2-3 hints only
+- step-by-step: Clear numbered steps with explanations
+- full-solution: Complete solution with all working
 
-${
-  language === "hindi"
-    ? `LANGUAGE: Respond ENTIRELY in Hindi (Devanagari script).
-Provide explanations in simple, clear Hindi.
-Examples: "पहले, हम जानकारी को समझते हैं।" "अब सूत्र लागू करते हैं।"`
-    : language === "hinglish"
-      ? `LANGUAGE: Respond ENTIRELY in HINGLISH (Hindi in Roman script).
-Mix Hindi and English naturally.
-Examples: "Pehle humko data ko samajhna hai." "Ab formula use karenge."`
-      : `LANGUAGE: Respond ENTIRELY in clear, simple English.`
-}
+Respond ENTIRELY in ${languageDesc}
 
-Respond with valid JSON in this format:
+JSON format:
 {
   "mode": "string",
-  "hints": ["hint1", "hint2"] (only for hint mode),
-  "steps": [{"stepNumber": number, "description": "string", "calculation": "string"}] (for step-by-step),
-  "fullSolution": "string" (for full-solution),
+  "hints": ["hint1", "hint2"],
+  "steps": [{"stepNumber": number, "description": "string", "calculation": "string"}],
+  "fullSolution": "string",
   "answer": "string",
-  "conceptsUsed": ["concept1", "concept2"],
-  "formulasApplied": ["formula1", "formula2"],
+  "conceptsUsed": ["concept1"],
+  "formulasApplied": ["formula1"],
   "commonMistakes": ["mistake1"],
   "similarExamples": ["example1"]
 }`;
 
   const userMessage = `${buildStudentContext(input)}
-Subject: Mathematics
+
+Math Problem
 Topic: ${input.topic || "General"}
-Mode requested: ${mode}
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
+Mode: ${mode}
 
-Problem:
-${input.content}
-
-Solve this in ${mode} mode.`;
+${input.content}`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 2000);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1300);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [MathsSolver] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     // If the result is empty object (from fallback), provide default data
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[MathsSolver] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.mathsSolver[
+          language as keyof typeof AGENT_FALLBACKS.mathsSolver
+        ] || AGENT_FALLBACKS.mathsSolver.english;
+
       return {
         success: true,
         agentName: "MathsSolverAgent",
         isFallback: true,
-        data: {
-          mode: mode,
-          hints:
-            mode === "hint"
-              ? language === "hindi"
-                ? [
-                    "दी गई जानकारी को सावधानी से देखें",
-                    "पहचानने की कोशिश करें कि कौन सा सूत्र लागू होता है",
-                  ]
-                : language === "hinglish"
-                  ? [
-                      "Given information ko carefully dekho",
-                      "Pehchanne ki koshish karo ki kaunsa formula apply hoga",
-                    ]
-                  : [
-                      "Look at the given information carefully",
-                      "Try to identify which formula or concept applies",
-                    ]
-              : undefined,
-          steps:
-            mode === "step-by-step"
-              ? [
-                  {
-                    stepNumber: 1,
-                    description:
-                      language === "hindi"
-                        ? "दी गई जानकारी को समझें"
-                        : language === "hinglish"
-                          ? "Given ki hui jaankari ko samjho"
-                          : "Identify the given values and what to find",
-                    calculation:
-                      language === "hindi"
-                        ? "सभी दी गई जानकारी सूची बनाएं"
-                        : language === "hinglish"
-                          ? "Sab kuch list karo"
-                          : "List all given information",
-                  },
-                  {
-                    stepNumber: 2,
-                    description:
-                      language === "hindi"
-                        ? "उपयुक्त सूत्र चुनें"
-                        : language === "hinglish"
-                          ? "Sahi formula select karo"
-                          : "Select the appropriate formula or method",
-                    calculation:
-                      language === "hindi"
-                        ? "सही गणितीय तरीका चुनें"
-                        : language === "hinglish"
-                          ? "Right tarika choose karo"
-                          : "Choose the relevant mathematical approach",
-                  },
-                  {
-                    stepNumber: 3,
-                    description:
-                      language === "hindi"
-                        ? "गणना करें"
-                        : language === "hinglish"
-                          ? "Calculation karo"
-                          : "Perform the calculation",
-                    calculation:
-                      language === "hindi"
-                        ? "सूत्र को चरण दर चरण लागू करें"
-                        : language === "hinglish"
-                          ? "Formula ko step by step apply karo"
-                          : "Apply the formula step by step",
-                  },
-                ]
-              : undefined,
-          fullSolution:
-            mode === "full-solution"
-              ? language === "hindi"
-                ? "सभी चरणों के साथ पूरा समाधान"
-                : language === "hinglish"
-                  ? "Sab steps ke saath pura solution"
-                  : "Complete solution with all steps shown"
-              : undefined,
-          answer:
-            language === "hindi"
-              ? "समाधान मान"
-              : language === "hinglish"
-                ? "Solution value"
-                : "Solution value",
-          conceptsUsed:
-            language === "hindi"
-              ? ["बीजगणित", "समस्या समाधान"]
-              : language === "hinglish"
-                ? ["Algebra", "Problem-solving"]
-                : ["Algebra", "Problem-solving"],
-          formulasApplied:
-            language === "hindi"
-              ? ["प्रासंगिक गणितीय सूत्र"]
-              : language === "hinglish"
-                ? ["Relevant mathematical formula"]
-                : ["Relevant mathematical formula"],
-          commonMistakes:
-            language === "hindi"
-              ? ["समस्या को ध्यान से न पढ़ना"]
-              : language === "hinglish"
-                ? ["Problem ko properly padna zaroori hai"]
-                : ["Not reading the problem carefully"],
-          similarExamples:
-            language === "hindi"
-              ? ["समान समस्या के उदाहरण"]
-              : language === "hinglish"
-                ? ["Similar problem examples"]
-                : ["Similar problem examples"],
-        },
+        data: { ...fallbackData, mode },
         processingTime: Date.now() - start,
       };
     }

@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const storyModeAgent = async (
   input: AgentInput,
@@ -21,61 +23,76 @@ export const storyModeAgent = async (
   // Normalize to lowercase for consistent comparison
   const language = rawLanguage.toLowerCase().trim();
 
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Make it engaging and fun."
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Mix Hindi and English naturally."
+        : "clear, engaging English. Keep it relatable.";
+
   const systemPrompt = `You are a creative educational storyteller for school students.
-Your job is to explain academic chapters and concepts as engaging stories.
-Make it fun, relatable, and memorable for students.
+Explain chapters as engaging stories that are fun, relatable, and memorable.
 
-${
-  language === "hindi"
-    ? `LANGUAGE: Tell the story ENTIRELY in Hindi (Devanagari script).
-Make it engaging and fun in Hindi.`
-    : language === "hinglish"
-      ? `LANGUAGE: Tell the story ENTIRELY in HINGLISH (Hindi in Roman script).
-Make it engaging and familiar to Hindi-speaking students.`
-      : `LANGUAGE: Tell the story ENTIRELY in clear, engaging English.`
-}
+Language: Respond ENTIRELY in ${languageDesc}
 
-Respond with valid JSON in this format:
+JSON Requirements:
+- storyTitle: Catchy story name
+- story: Engaging narrative (main content)
+- moralOrLesson: Key learning point
+- conceptsExplained: ONE-LINER definitions only (max 15 words each)
+- funFact: Interesting related fact
+
+JSON format:
 {
   "storyTitle": "string",
-  "story": "string (engaging narrative explaining the concept)",
-  "characters": ["character1", "character2"],
+  "story": "string",
   "moralOrLesson": "string",
-  "conceptsExplained": ["concept1", "concept2"],
-  "discussionQuestions": ["question1", "question2"],
+  "conceptsExplained": {
+    "concept1": "one-liner (max 15 words)",
+    "concept2": "one-liner (max 15 words)"
+  },
   "funFact": "string"
 }`;
 
   const userMessage = `${buildStudentContext(input)}
-Subject: ${input.subject}
-Chapter/Topic: ${input.topic || input.content}
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
 
-Create an engaging story that explains this chapter/topic in a fun and memorable way for a ${input.classLevel} student.`;
+Subject: ${input.subject}
+Topic: ${input.topic || input.content}
+Class Level: ${input.classLevel || "General"}
+
+Make this engaging and memorable!`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 2000);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1200);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [StoryMode] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[StoryMode] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.storyMode[
+          language as keyof typeof AGENT_FALLBACKS.storyMode
+        ] || AGENT_FALLBACKS.storyMode.english;
+
       return {
         success: true,
         agentName: "StoryModeAgent",
         isFallback: true,
-        data: {
-          storyTitle: "An Adventure Through Learning",
-          story:
-            "Once upon a time, a curious student embarked on a journey to master this fascinating topic. Along the way, they discovered amazing concepts that helped them understand the world better...",
-          characters: ["The Student Hero", "Wise Mentor", "Curious Guide"],
-          moralOrLesson:
-            "Understanding comes through curiosity and persistence",
-          conceptsExplained: ["Key concept 1", "Key concept 2"],
-          discussionQuestions: [
-            "What was your favorite part of the story?",
-            "How does this relate to real life?",
-          ],
-          funFact: "This concept is used in many real-world applications!",
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

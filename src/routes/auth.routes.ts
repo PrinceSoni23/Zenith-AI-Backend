@@ -6,13 +6,21 @@ import {
   changePassword,
 } from "../controllers/auth.controller";
 import { authenticate } from "../middleware/auth.middleware";
-import { strictRateLimiter } from "../middleware/rateLimiter";
+import {
+  authRateLimiter,
+  passwordChangeLimiter,
+} from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 
-router.post("/register", strictRateLimiter, register);
-router.post("/login", strictRateLimiter, login);
+router.post("/register", authRateLimiter, register);
+router.post("/login", authRateLimiter, login);
 router.get("/me", authenticate, getMe);
-router.put("/change-password", authenticate, changePassword);
+router.put(
+  "/change-password",
+  authenticate,
+  passwordChangeLimiter,
+  changePassword,
+);
 
 export default router;

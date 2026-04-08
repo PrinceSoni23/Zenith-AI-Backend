@@ -12,6 +12,7 @@ import { WeakTopic } from "../models/WeakTopic.model";
 import { User } from "../models/User.model";
 import { Parent } from "../models/Parent.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { parentPortalRateLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.use(authenticate);
 // Get student insights - PROTECTED - only if parent is linked to student
 router.get(
   "/student/:studentId",
+  parentPortalRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const { studentId } = req.params;
     const parentUserId = req.user?.id;

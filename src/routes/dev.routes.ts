@@ -3,11 +3,12 @@ import {
   createDummyStudent,
   clearDummyData,
 } from "../controllers/dev.controller";
+import { devEndpointLimiter } from "../middleware/rateLimiter.advanced";
 
 const router = Router();
 
-// Development-only endpoints
-router.post("/create-dummy-student", createDummyStudent);
-router.post("/clear-dummy-data", clearDummyData);
+// Development-only endpoints - Strict rate limiting
+router.post("/create-dummy-student", devEndpointLimiter, createDummyStudent);
+router.post("/clear-dummy-data", devEndpointLimiter, clearDummyData);
 
 export default router;

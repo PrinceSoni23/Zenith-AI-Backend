@@ -29,6 +29,14 @@ export interface AgentOutput {
   isFallback?: boolean;
 }
 
+export interface AIResponse {
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  model: string;
+}
+
 // Free model fallback chain — favor broadly available multilingual models first.
 const FREE_MODELS = [
   "meta-llama/llama-3.3-70b-instruct:free", // strong multilingual fallback
@@ -101,7 +109,7 @@ export const callOpenAI = async (
   systemPrompt: string,
   userMessage: string,
   maxTokens = 1500,
-): Promise<string> => {
+): Promise<AIResponse> => {
   const primaryModel = process.env.OPENAI_MODEL || FREE_MODELS[0];
   const allModels = [
     primaryModel,
@@ -132,10 +140,27 @@ export const callOpenAI = async (
         .replace(/\s*```$/i, "")
         .trim();
       const repaired = repairJSON(cleaned) || "{}";
+
+      // Extract token usage
+      const inputTokens = response.usage?.prompt_tokens || 0;
+      const outputTokens = response.usage?.completion_tokens || 0;
+      const totalTokens =
+        response.usage?.total_tokens || inputTokens + outputTokens;
+
       console.log(
         `[callOpenAI] ✅ Model: ${model}, Raw length: ${raw.length}, Repaired: ${repaired.length}`,
       );
-      return repaired;
+      console.log(
+        `[callOpenAI] 📊 Tokens - Input: ${inputTokens}, Output: ${outputTokens}, Total: ${totalTokens}`,
+      );
+
+      return {
+        content: repaired,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        model,
+      };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errStr = msg.toLowerCase();
@@ -171,7 +196,13 @@ export const callOpenAI = async (
   console.warn(
     "[callOpenAI] 🔴 ALL MODELS EXHAUSTED - returning empty JSON fallback",
   );
-  return "{}";
+  return {
+    content: "{}",
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    model: "fallback",
+  };
 };
 
 // ── Vision models — multimodal, free tier on OpenRouter ────────────────────
@@ -191,7 +222,7 @@ export const callVision = async (
   imageBase64: string,
   mimeType: string,
   maxTokens = 1500,
-): Promise<string> => {
+): Promise<AIResponse> => {
   const primaryModel = process.env.VISION_MODEL || FREE_VISION_MODELS[0];
   const allModels = [
     primaryModel,
@@ -235,10 +266,27 @@ export const callVision = async (
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/i, "")
         .trim();
+
+      // Extract token usage
+      const inputTokens = response.usage?.prompt_tokens || 0;
+      const outputTokens = response.usage?.completion_tokens || 0;
+      const totalTokens =
+        response.usage?.total_tokens || inputTokens + outputTokens;
+
       console.log(
         `[callVision] ✅ Model: ${model}, Response length: ${raw.length}`,
       );
-      return repairJSON(cleaned) || "{}";
+      console.log(
+        `[callVision] 📊 Tokens - Input: ${inputTokens}, Output: ${outputTokens}, Total: ${totalTokens}`,
+      );
+
+      return {
+        content: repairJSON(cleaned) || "{}",
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        model,
+      };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errStr = msg.toLowerCase();

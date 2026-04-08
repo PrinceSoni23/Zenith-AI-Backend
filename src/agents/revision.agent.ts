@@ -4,7 +4,9 @@ import {
   callOpenAI,
   buildStudentContext,
   safeJsonParse,
+  AIResponse,
 } from "./base.agent";
+import { AGENT_FALLBACKS } from "../constants/fallback.constants";
 
 export const revisionAgent = async (
   input: AgentInput,
@@ -21,78 +23,65 @@ export const revisionAgent = async (
   // Normalize to lowercase for consistent comparison
   const language = rawLanguage.toLowerCase().trim();
 
+  const languageDesc =
+    language === "hindi"
+      ? "Hindi (Devanagari script). Use examples: 'Yeh kya hai?'"
+      : language === "hinglish"
+        ? "Hinglish (Hindi in Roman script). Mix naturally."
+        : "clear, simple English.";
+
   const systemPrompt = `You are an expert revision coach for school students.
-Based on study logs and weak topics, generate quick recall questions to help students revise effectively.
+Generate quick recall questions and flashcards for effective revision.
 
-${
-  language === "hindi"
-    ? `LANGUAGE: Generate questions and summaries ENTIRELY in Hindi (Devanagari script).
-Use simple Hindi for revision: "यह क्या है?" "परिभाषा दें।"`
-    : language === "hinglish"
-      ? `LANGUAGE: Generate questions and summaries ENTIRELY in HINGLISH (Hindi in Roman script).
-Use familiar Hinglish: "Yeh kya hai?" "Definition do."`
-      : `LANGUAGE: Generate questions and summaries ENTIRELY in clear, simple English.`
-}
+Respond ENTIRELY in ${languageDesc}
 
-Respond with valid JSON in this format:
+JSON format:
 {
-  "recallQuestions": [
-    {
-      "question": "string",
-      "answer": "string",
-      "hint": "string",
-      "difficulty": "easy|medium|hard"
-    }
-  ],
-  "flashCards": [
-    {
-      "front": "string",
-      "back": "string"
-    }
-  ],
+  "recallQuestions": [{"question": "string", "answer": "string", "hint": "string", "difficulty": "easy|medium|hard"}],
+  "flashCards": [{"front": "string", "back": "string"}],
   "quickSummary": "string",
-  "revisionTips": ["tip1", "tip2"],
+  "revisionTips": ["tip1"],
   "estimatedRevisionTime": number
 }`;
 
   const userMessage = `${buildStudentContext(input)}
 Subject: ${input.subject}
-Topic to revise: ${input.topic}
+Topic: ${input.topic}
 Weak areas: ${(input.additionalContext?.weakTopics as string[])?.join(", ") || "None"}
-Language: ${language === "hindi" ? "हिंदी (Hindi)" : language === "hinglish" ? "Hinglish" : "English"}
-Last studied: ${input.additionalContext?.lastStudied || "Recently"}
-Study log summary: ${input.content || "Student has been studying this topic"}
 
-Generate effective revision questions and flashcards.`;
+${input.content || "Generate revision questions"}`.trim();
 
   try {
-    const result = await callOpenAI(systemPrompt, userMessage, 4000);
+    const aiResponse = await callOpenAI(systemPrompt, userMessage, 1300);
+    const result = aiResponse.content;
+
+    // Log token usage for this request
+    console.log("📊 [Revision] Token Usage Summary:");
+    console.log(`   Model: ${aiResponse.model}`);
+    console.log(`   Input Tokens: ${aiResponse.inputTokens}`);
+    console.log(`   Output Tokens: ${aiResponse.outputTokens}`);
+    console.log(`   Total Tokens: ${aiResponse.totalTokens}`);
+    console.log(
+      `   Token Breakdown: ${aiResponse.inputTokens} (input) + ${aiResponse.outputTokens} (output) = ${aiResponse.totalTokens} (total)`,
+    );
+
     const parsed = safeJsonParse(result);
 
     if (Object.keys(parsed).length === 0) {
+      console.log(
+        "[Revision] - Empty parsed result, using fallback data for language:",
+        language,
+      );
+      const fallbackData =
+        AGENT_FALLBACKS.revision[
+          language as keyof typeof AGENT_FALLBACKS.revision
+        ] || AGENT_FALLBACKS.revision.english;
+
       return {
         success: true,
         agentName: "RevisionAgent",
         isFallback: true,
-        data: {
-          recallQuestions: [
-            {
-              question: "What is the main concept from this topic?",
-              answer: "The main concept involves understanding key principles",
-              hint: "Focus on the core ideas",
-              difficulty: "easy",
-            },
-          ],
-          flashCards: [
-            {
-              front: "Key Term",
-              back: "Definition of the key concept",
-            },
-          ],
-          quickSummary: "Quick summary of main topics for revision",
-          revisionTips: ["Review regularly", "Test yourself with questions"],
-          estimatedRevisionTime: 20,
-        },
+        data: fallbackData,
         processingTime: Date.now() - start,
       };
     }

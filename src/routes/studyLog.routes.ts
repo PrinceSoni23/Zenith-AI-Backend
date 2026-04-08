@@ -4,6 +4,7 @@ import { AuthRequest, authenticate } from "../middleware/auth.middleware";
 import { StudyLog } from "../models/StudyLog.model";
 import { StudentProfile } from "../models/StudentProfile.model";
 import { asyncHandler, createError } from "../middleware/errorHandler";
+import { studyLogRateLimiter } from "../middleware/rateLimiter.advanced";
 import {
   validateStudyLogFields,
   normalizePagination,
@@ -15,6 +16,7 @@ router.use(authenticate);
 
 router.post(
   "/",
+  studyLogRateLimiter,
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
     if (!userId) throw createError("Unauthorized", 401);
